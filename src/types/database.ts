@@ -1,3 +1,6 @@
+// AUTO-GENERATED: matches supabase/migrations/001-008
+// Re-generate with: npx supabase gen types typescript --local
+
 export type Json =
   | string
   | number
@@ -6,697 +9,449 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type Database = {
+export type UserRole = "admin" | "editor" | "doctor" | "staff" | "user";
+export type ProfileStatus = "draft" | "published" | "hidden" | "suspended";
+export type VerificationLevel = "none" | "basic" | "document" | "editorial";
+export type ClaimStatus =
+  | "initiated" | "email_sent" | "otp_verified" | "document_pending"
+  | "manual_review" | "approved" | "rejected";
+export type LeadStatus =
+  | "new" | "sent" | "viewed" | "contacted" | "won" | "lost" | "spam";
+export type ReviewVerificationStatus = "unverified" | "email" | "document" | "editorial";
+export type ReviewModerationStatus = "pending" | "published" | "rejected" | "flagged";
+export type MediaVisibility = "public" | "private" | "premium" | "internal";
+export type MediaKind = "portrait" | "clinic" | "certificate" | "logo" | "gallery" | "other";
+export type ProcedureType = "operation" | "behandlung";
+export type ImportBatchStatus = "created" | "running" | "needs_review" | "completed" | "failed";
+export type ImportCandidateStatus = "new" | "matched" | "needs_review" | "approved" | "rejected" | "merged";
+export type MergeDecision = "create_new" | "merge_into_existing" | "ignore";
+export type ClaimVerificationMethod = "email_domain" | "document_upload" | "phone_callback" | "manual";
+
+export interface Database {
   public: {
     Tables: {
       app_users: {
-        Row: {
-          id: string;
-          email: string;
-          role: UserRole;
-          full_name: string | null;
-          phone: string | null;
-          avatar_url: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id: string;
-          email: string;
-          role?: UserRole;
-          full_name?: string | null;
-          phone?: string | null;
-          avatar_url?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          email?: string;
-          role?: UserRole;
-          full_name?: string | null;
-          phone?: string | null;
-          avatar_url?: string | null;
-          updated_at?: string;
-        };
-      };
-      doctor_profiles: {
-        Row: {
-          id: string;
-          slug: string;
-          owner_id: string | null;
-          status: ProfileStatus;
-          verification_level: VerificationLevel;
-          is_premium: boolean;
-          title: string | null;
-          first_name: string;
-          last_name: string;
-          gender: string | null;
-          specialty_id: string | null;
-          bio_short: string | null;
-          bio_long: string | null;
-          website_url: string | null;
-          phone: string | null;
-          email: string | null;
-          languages: string[];
-          profile_image_url: string | null;
-          fts: unknown;
-          created_at: string;
-          updated_at: string;
-          published_at: string | null;
-        };
-        Insert: {
-          id?: string;
-          slug: string;
-          owner_id?: string | null;
-          status?: ProfileStatus;
-          verification_level?: VerificationLevel;
-          is_premium?: boolean;
-          title?: string | null;
-          first_name: string;
-          last_name: string;
-          gender?: string | null;
-          specialty_id?: string | null;
-          bio_short?: string | null;
-          bio_long?: string | null;
-          website_url?: string | null;
-          phone?: string | null;
-          email?: string | null;
-          languages?: string[];
-          profile_image_url?: string | null;
-        };
-        Update: {
-          slug?: string;
-          owner_id?: string | null;
-          status?: ProfileStatus;
-          verification_level?: VerificationLevel;
-          is_premium?: boolean;
-          title?: string | null;
-          first_name?: string;
-          last_name?: string;
-          gender?: string | null;
-          specialty_id?: string | null;
-          bio_short?: string | null;
-          bio_long?: string | null;
-          website_url?: string | null;
-          phone?: string | null;
-          email?: string | null;
-          languages?: string[];
-          profile_image_url?: string | null;
-        };
-      };
-      clinic_profiles: {
-        Row: {
-          id: string;
-          slug: string;
-          owner_id: string | null;
-          status: ProfileStatus;
-          name: string;
-          description: string | null;
-          website_url: string | null;
-          phone: string | null;
-          email: string | null;
-          logo_url: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          slug: string;
-          owner_id?: string | null;
-          status?: ProfileStatus;
-          name: string;
-          description?: string | null;
-          website_url?: string | null;
-          phone?: string | null;
-          email?: string | null;
-          logo_url?: string | null;
-        };
-        Update: {
-          slug?: string;
-          owner_id?: string | null;
-          status?: ProfileStatus;
-          name?: string;
-          description?: string | null;
-          website_url?: string | null;
-          phone?: string | null;
-          email?: string | null;
-          logo_url?: string | null;
-        };
+        Row: { id: string; role: UserRole; full_name: string | null; phone: string | null; created_at: string; updated_at: string; };
+        Insert: { id: string; role?: UserRole; full_name?: string | null; phone?: string | null; created_at?: string; updated_at?: string; };
+        Update: { role?: UserRole; full_name?: string | null; phone?: string | null; updated_at?: string; };
+        Relationships: [];
       };
       specialties: {
-        Row: {
-          id: string;
-          name: string;
-          slug: string;
-          description: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          name: string;
-          slug: string;
-          description?: string | null;
-        };
-        Update: {
-          name?: string;
-          slug?: string;
-          description?: string | null;
-        };
+        Row: { id: string; slug: string; name_de: string; description: string | null; sort_order: number; created_at: string; };
+        Insert: { id?: string; slug: string; name_de: string; description?: string | null; sort_order?: number; created_at?: string; };
+        Update: { slug?: string; name_de?: string; description?: string | null; sort_order?: number; };
+        Relationships: [];
       };
       procedure_categories: {
-        Row: {
-          id: string;
-          name: string;
-          slug: string;
-          icon: string | null;
-          sort_order: number;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          name: string;
-          slug: string;
-          icon?: string | null;
-          sort_order?: number;
-        };
-        Update: {
-          name?: string;
-          slug?: string;
-          icon?: string | null;
-          sort_order?: number;
-        };
+        Row: { id: string; slug: string; name_de: string; sort_order: number; created_at: string; };
+        Insert: { id?: string; slug: string; name_de: string; sort_order?: number; created_at?: string; };
+        Update: { slug?: string; name_de?: string; sort_order?: number; };
+        Relationships: [];
       };
       procedures: {
         Row: {
-          id: string;
-          category_id: string | null;
-          name: string;
-          slug: string;
-          description: string | null;
-          procedure_type: ProcedureType;
-          typical_price_min: number | null;
-          typical_price_max: number | null;
-          recovery_days: number | null;
-          created_at: string;
+          id: string; slug: string; name_de: string; synonyms: string[];
+          category_id: string | null; procedure_type: ProcedureType; body_area: string | null;
+          intro_md: string | null; risks_md: string | null; recovery_md: string | null; faq_md: string | null;
+          is_active: boolean; search_text: string | null; fts: unknown | null;
+          created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          category_id?: string | null;
-          name: string;
-          slug: string;
-          description?: string | null;
-          procedure_type?: ProcedureType;
-          typical_price_min?: number | null;
-          typical_price_max?: number | null;
-          recovery_days?: number | null;
+          id?: string; slug: string; name_de: string; synonyms?: string[];
+          category_id?: string | null; procedure_type: ProcedureType; body_area?: string | null;
+          intro_md?: string | null; risks_md?: string | null; recovery_md?: string | null; faq_md?: string | null;
+          is_active?: boolean; created_at?: string; updated_at?: string;
         };
         Update: {
-          category_id?: string | null;
-          name?: string;
-          slug?: string;
-          description?: string | null;
-          procedure_type?: ProcedureType;
-          typical_price_min?: number | null;
-          typical_price_max?: number | null;
-          recovery_days?: number | null;
+          slug?: string; name_de?: string; synonyms?: string[];
+          category_id?: string | null; procedure_type?: ProcedureType; body_area?: string | null;
+          intro_md?: string | null; risks_md?: string | null; recovery_md?: string | null; faq_md?: string | null;
+          is_active?: boolean; updated_at?: string;
         };
+        Relationships: [];
       };
-      doctor_procedures: {
+      clinic_profiles: {
         Row: {
-          id: string;
-          doctor_id: string;
-          procedure_id: string;
-          price_min: number | null;
-          price_max: number | null;
-          price_note: string | null;
-          is_featured: boolean;
-          created_at: string;
-          updated_at: string;
+          id: string; owner_user_id: string | null; slug: string; name: string; clinic_type: string;
+          about: string | null; website_url: string | null; phone: string | null; email: string | null;
+          is_claimed: boolean; is_verified: boolean; verification_level: VerificationLevel;
+          is_premium: boolean; profile_status: ProfileStatus; created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          doctor_id: string;
-          procedure_id: string;
-          price_min?: number | null;
-          price_max?: number | null;
-          price_note?: string | null;
-          is_featured?: boolean;
+          id?: string; owner_user_id?: string | null; slug: string; name: string; clinic_type?: string;
+          about?: string | null; website_url?: string | null; phone?: string | null; email?: string | null;
+          is_claimed?: boolean; is_verified?: boolean; verification_level?: VerificationLevel;
+          is_premium?: boolean; profile_status?: ProfileStatus; created_at?: string; updated_at?: string;
         };
         Update: {
-          price_min?: number | null;
-          price_max?: number | null;
-          price_note?: string | null;
-          is_featured?: boolean;
+          owner_user_id?: string | null; slug?: string; name?: string; clinic_type?: string;
+          about?: string | null; website_url?: string | null; phone?: string | null; email?: string | null;
+          is_claimed?: boolean; is_verified?: boolean; verification_level?: VerificationLevel;
+          is_premium?: boolean; profile_status?: ProfileStatus; updated_at?: string;
         };
+        Relationships: [];
+      };
+      doctor_profiles: {
+        Row: {
+          id: string; owner_user_id: string | null; slug: string;
+          first_name: string; last_name: string; title_prefix: string | null; title_suffix: string | null;
+          public_display_name: string; gender: string | null; primary_specialty_id: string | null;
+          short_bio: string | null; long_bio: string | null; years_experience: number | null;
+          languages: string[]; website_url: string | null; email_public: string | null; phone_public: string | null;
+          is_claimed: boolean; is_verified: boolean; verification_level: VerificationLevel;
+          is_premium: boolean; profile_status: ProfileStatus; source_confidence: number;
+          source_type: string | null; source_url: string | null; last_verified_at: string | null;
+          search_text: string | null; fts: unknown | null; created_at: string; updated_at: string;
+        };
+        Insert: {
+          id?: string; owner_user_id?: string | null; slug: string;
+          first_name: string; last_name: string; title_prefix?: string | null; title_suffix?: string | null;
+          public_display_name: string; gender?: string | null; primary_specialty_id?: string | null;
+          short_bio?: string | null; long_bio?: string | null; years_experience?: number | null;
+          languages?: string[]; website_url?: string | null; email_public?: string | null; phone_public?: string | null;
+          is_claimed?: boolean; is_verified?: boolean; verification_level?: VerificationLevel;
+          is_premium?: boolean; profile_status?: ProfileStatus; source_confidence?: number;
+          source_type?: string | null; source_url?: string | null; last_verified_at?: string | null;
+          created_at?: string; updated_at?: string;
+        };
+        Update: {
+          owner_user_id?: string | null; slug?: string;
+          first_name?: string; last_name?: string; title_prefix?: string | null; title_suffix?: string | null;
+          public_display_name?: string; gender?: string | null; primary_specialty_id?: string | null;
+          short_bio?: string | null; long_bio?: string | null; years_experience?: number | null;
+          languages?: string[]; website_url?: string | null; email_public?: string | null; phone_public?: string | null;
+          is_claimed?: boolean; is_verified?: boolean; verification_level?: VerificationLevel;
+          is_premium?: boolean; profile_status?: ProfileStatus; source_confidence?: number;
+          source_type?: string | null; source_url?: string | null; last_verified_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      doctor_clinic_links: {
+        Row: { id: string; doctor_id: string; clinic_id: string; role_label: string | null; is_primary: boolean; created_at: string; };
+        Insert: { id?: string; doctor_id: string; clinic_id: string; role_label?: string | null; is_primary?: boolean; created_at?: string; };
+        Update: { role_label?: string | null; is_primary?: boolean; };
+        Relationships: [];
       };
       locations: {
         Row: {
-          id: string;
-          doctor_id: string | null;
-          clinic_id: string | null;
-          name: string | null;
-          address_street: string | null;
-          address_city: string;
-          address_zip: string | null;
-          address_state: string | null;
-          address_country: string;
-          lat: number | null;
-          lng: number | null;
-          phone: string | null;
-          is_primary: boolean;
-          created_at: string;
-          updated_at: string;
+          id: string; doctor_id: string | null; clinic_id: string | null; country_code: string;
+          state: string | null; city: string; district: string | null; postal_code: string | null;
+          street: string | null; house_number: string | null; latitude: number | null; longitude: number | null;
+          is_primary: boolean; created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          doctor_id?: string | null;
-          clinic_id?: string | null;
-          name?: string | null;
-          address_street?: string | null;
-          address_city: string;
-          address_zip?: string | null;
-          address_state?: string | null;
-          address_country?: string;
-          lat?: number | null;
-          lng?: number | null;
-          phone?: string | null;
-          is_primary?: boolean;
+          id?: string; doctor_id?: string | null; clinic_id?: string | null; country_code?: string;
+          state?: string | null; city: string; district?: string | null; postal_code?: string | null;
+          street?: string | null; house_number?: string | null; latitude?: number | null; longitude?: number | null;
+          is_primary?: boolean; created_at?: string; updated_at?: string;
         };
         Update: {
-          name?: string | null;
-          address_street?: string | null;
-          address_city?: string;
-          address_zip?: string | null;
-          address_state?: string | null;
-          lat?: number | null;
-          lng?: number | null;
-          phone?: string | null;
-          is_primary?: boolean;
+          doctor_id?: string | null; clinic_id?: string | null; country_code?: string;
+          state?: string | null; city?: string; district?: string | null; postal_code?: string | null;
+          street?: string | null; house_number?: string | null; latitude?: number | null; longitude?: number | null;
+          is_primary?: boolean; updated_at?: string;
         };
+        Relationships: [];
+      };
+      doctor_procedures: {
+        Row: {
+          id: string; doctor_id: string; procedure_id: string; clinic_id: string | null;
+          years_offered: number | null; description_short: string | null; is_primary_focus: boolean;
+          price_from: number | null; price_to: number | null; currency: string;
+          price_note: string | null; consultation_fee: number | null; is_price_verified: boolean;
+          last_price_check_at: string | null; is_active: boolean; created_at: string; updated_at: string;
+        };
+        Insert: {
+          id?: string; doctor_id: string; procedure_id: string; clinic_id?: string | null;
+          years_offered?: number | null; description_short?: string | null; is_primary_focus?: boolean;
+          price_from?: number | null; price_to?: number | null; currency?: string;
+          price_note?: string | null; consultation_fee?: number | null; is_price_verified?: boolean;
+          last_price_check_at?: string | null; is_active?: boolean; created_at?: string; updated_at?: string;
+        };
+        Update: {
+          years_offered?: number | null; description_short?: string | null; is_primary_focus?: boolean;
+          price_from?: number | null; price_to?: number | null; currency?: string;
+          price_note?: string | null; consultation_fee?: number | null; is_price_verified?: boolean;
+          last_price_check_at?: string | null; is_active?: boolean; updated_at?: string;
+        };
+        Relationships: [];
       };
       profile_claims: {
         Row: {
-          id: string;
-          doctor_id: string;
-          claimant_id: string;
-          status: ClaimStatus;
-          verification_method: ClaimVerificationMethod;
-          claimant_email: string;
-          claimant_phone: string | null;
-          claimant_role: string | null;
-          notes: string | null;
-          admin_notes: string | null;
-          document_urls: string[];
-          created_at: string;
-          updated_at: string;
-          reviewed_at: string | null;
-          reviewed_by: string | null;
+          id: string; doctor_id: string | null; clinic_id: string | null;
+          claimant_user_id: string; claimant_email: string; claimant_phone: string | null;
+          requested_role: string; status: ClaimStatus; proof_type: string | null; proof_value: string | null;
+          notes: string | null; verification_method: ClaimVerificationMethod | null;
+          assigned_to: string | null; reviewed_at: string | null; approved_user_id: string | null;
+          created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          doctor_id: string;
-          claimant_id: string;
-          status?: ClaimStatus;
-          verification_method: ClaimVerificationMethod;
-          claimant_email: string;
-          claimant_phone?: string | null;
-          claimant_role?: string | null;
-          notes?: string | null;
-          document_urls?: string[];
+          id?: string; doctor_id?: string | null; clinic_id?: string | null;
+          claimant_user_id: string; claimant_email: string; claimant_phone?: string | null;
+          requested_role?: string; status?: ClaimStatus; proof_type?: string | null; proof_value?: string | null;
+          notes?: string | null; verification_method?: ClaimVerificationMethod | null;
+          assigned_to?: string | null; reviewed_at?: string | null; approved_user_id?: string | null;
+          created_at?: string; updated_at?: string;
         };
         Update: {
-          status?: ClaimStatus;
-          admin_notes?: string | null;
-          document_urls?: string[];
-          reviewed_at?: string | null;
-          reviewed_by?: string | null;
+          doctor_id?: string | null; clinic_id?: string | null;
+          claimant_user_id?: string; claimant_email?: string; claimant_phone?: string | null;
+          requested_role?: string; status?: ClaimStatus; proof_type?: string | null; proof_value?: string | null;
+          notes?: string | null; verification_method?: ClaimVerificationMethod | null;
+          assigned_to?: string | null; reviewed_at?: string | null; approved_user_id?: string | null;
+          updated_at?: string;
         };
+        Relationships: [];
       };
       lead_requests: {
         Row: {
-          id: string;
-          doctor_id: string;
-          status: LeadStatus;
-          name: string;
-          email: string;
-          phone: string | null;
-          procedure_id: string | null;
-          message: string | null;
-          preferred_contact: string | null;
-          consent_data_processing: boolean;
-          consent_forwarding: boolean;
-          utm_source: string | null;
-          utm_medium: string | null;
-          utm_campaign: string | null;
-          gclid: string | null;
-          ip_hash: string | null;
-          created_at: string;
-          updated_at: string;
+          id: string; doctor_id: string | null; clinic_id: string | null; procedure_id: string | null;
+          source_page_url: string | null; source_page_type: string | null;
+          patient_name: string; patient_email: string; patient_phone: string | null;
+          preferred_contact: string | null; preferred_time: string | null; message: string;
+          consent_privacy: boolean; consent_data_forwarding: boolean;
+          utm_source: string | null; utm_medium: string | null; utm_campaign: string | null;
+          gclid: string | null; is_qualified: boolean | null; spam_score: number | null;
+          status: LeadStatus; created_at: string;
         };
         Insert: {
-          id?: string;
-          doctor_id: string;
-          status?: LeadStatus;
-          name: string;
-          email: string;
-          phone?: string | null;
-          procedure_id?: string | null;
-          message?: string | null;
-          preferred_contact?: string | null;
-          consent_data_processing: boolean;
-          consent_forwarding: boolean;
-          utm_source?: string | null;
-          utm_medium?: string | null;
-          utm_campaign?: string | null;
-          gclid?: string | null;
-          ip_hash?: string | null;
+          id?: string; doctor_id?: string | null; clinic_id?: string | null; procedure_id?: string | null;
+          source_page_url?: string | null; source_page_type?: string | null;
+          patient_name: string; patient_email: string; patient_phone?: string | null;
+          preferred_contact?: string | null; preferred_time?: string | null; message: string;
+          consent_privacy: boolean; consent_data_forwarding: boolean;
+          utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null;
+          gclid?: string | null; is_qualified?: boolean | null; spam_score?: number | null;
+          status?: LeadStatus; created_at?: string;
         };
         Update: {
+          doctor_id?: string | null; clinic_id?: string | null; procedure_id?: string | null;
+          source_page_url?: string | null; source_page_type?: string | null;
+          patient_name?: string; patient_email?: string; patient_phone?: string | null;
+          preferred_contact?: string | null; preferred_time?: string | null; message?: string;
+          consent_privacy?: boolean; consent_data_forwarding?: boolean;
+          utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null;
+          gclid?: string | null; is_qualified?: boolean | null; spam_score?: number | null;
           status?: LeadStatus;
         };
+        Relationships: [];
       };
       reviews: {
         Row: {
-          id: string;
-          doctor_id: string;
-          author_name: string;
-          author_email: string | null;
-          rating: number;
-          text: string | null;
-          treatment: string | null;
-          verification_status: ReviewVerificationStatus;
-          moderation_status: ReviewModerationStatus;
-          doctor_reply: string | null;
-          created_at: string;
-          updated_at: string;
-          published_at: string | null;
+          id: string; doctor_id: string; clinic_id: string | null; user_id: string | null;
+          procedure_id: string | null; rating_overall: number; rating_consultation: number | null;
+          rating_result: number | null; rating_staff: number | null; title: string | null; body: string | null;
+          visit_month: number | null; visit_year: number | null;
+          verification_status: ReviewVerificationStatus; moderation_status: ReviewModerationStatus;
+          created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          doctor_id: string;
-          author_name: string;
-          author_email?: string | null;
-          rating: number;
-          text?: string | null;
-          treatment?: string | null;
-          verification_status?: ReviewVerificationStatus;
-          moderation_status?: ReviewModerationStatus;
+          id?: string; doctor_id: string; clinic_id?: string | null; user_id?: string | null;
+          procedure_id?: string | null; rating_overall: number; rating_consultation?: number | null;
+          rating_result?: number | null; rating_staff?: number | null; title?: string | null; body?: string | null;
+          visit_month?: number | null; visit_year?: number | null;
+          verification_status?: ReviewVerificationStatus; moderation_status?: ReviewModerationStatus;
+          created_at?: string; updated_at?: string;
         };
         Update: {
-          moderation_status?: ReviewModerationStatus;
-          doctor_reply?: string | null;
-          published_at?: string | null;
+          rating_overall?: number; rating_consultation?: number | null;
+          rating_result?: number | null; rating_staff?: number | null; title?: string | null; body?: string | null;
+          visit_month?: number | null; visit_year?: number | null;
+          verification_status?: ReviewVerificationStatus; moderation_status?: ReviewModerationStatus;
+          updated_at?: string;
         };
+        Relationships: [];
       };
       media_assets: {
         Row: {
-          id: string;
-          doctor_id: string | null;
-          clinic_id: string | null;
-          kind: MediaKind;
-          visibility: MediaVisibility;
-          storage_path: string;
-          url: string | null;
-          alt_text: string | null;
-          is_approved: boolean;
-          sort_order: number;
-          created_at: string;
-          updated_at: string;
+          id: string; doctor_id: string | null; clinic_id: string | null; uploaded_by: string | null;
+          bucket_id: string; object_path: string; mime_type: string | null;
+          width: number | null; height: number | null; alt_text: string | null;
+          visibility: MediaVisibility; media_kind: MediaKind; sort_order: number;
+          approved_at: string | null; created_at: string;
         };
         Insert: {
-          id?: string;
-          doctor_id?: string | null;
-          clinic_id?: string | null;
-          kind: MediaKind;
-          visibility?: MediaVisibility;
-          storage_path: string;
-          url?: string | null;
-          alt_text?: string | null;
-          is_approved?: boolean;
-          sort_order?: number;
+          id?: string; doctor_id?: string | null; clinic_id?: string | null; uploaded_by?: string | null;
+          bucket_id: string; object_path: string; mime_type?: string | null;
+          width?: number | null; height?: number | null; alt_text?: string | null;
+          visibility?: MediaVisibility; media_kind?: MediaKind; sort_order?: number;
+          approved_at?: string | null; created_at?: string;
         };
         Update: {
-          visibility?: MediaVisibility;
-          alt_text?: string | null;
-          is_approved?: boolean;
-          sort_order?: number;
+          doctor_id?: string | null; clinic_id?: string | null; uploaded_by?: string | null;
+          bucket_id?: string; object_path?: string; mime_type?: string | null;
+          width?: number | null; height?: number | null; alt_text?: string | null;
+          visibility?: MediaVisibility; media_kind?: MediaKind; sort_order?: number;
+          approved_at?: string | null;
         };
-      };
-      source_records: {
-        Row: {
-          id: string;
-          doctor_id: string | null;
-          source_name: string;
-          external_id: string | null;
-          raw_data: Json;
-          confidence_score: number;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          doctor_id?: string | null;
-          source_name: string;
-          external_id?: string | null;
-          raw_data: Json;
-          confidence_score?: number;
-        };
-        Update: {
-          doctor_id?: string | null;
-          confidence_score?: number;
-        };
-      };
-      audit_logs: {
-        Row: {
-          id: string;
-          user_id: string | null;
-          action: string;
-          entity_type: string;
-          entity_id: string | null;
-          old_data: Json | null;
-          new_data: Json | null;
-          ip_address: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id?: string | null;
-          action: string;
-          entity_type: string;
-          entity_id?: string | null;
-          old_data?: Json | null;
-          new_data?: Json | null;
-          ip_address?: string | null;
-        };
-        Update: never;
+        Relationships: [];
       };
       import_batches: {
         Row: {
-          id: string;
-          name: string;
-          source: string;
-          status: ImportBatchStatus;
-          total_records: number;
-          processed_records: number;
-          error_count: number;
-          created_by: string | null;
-          created_at: string;
-          updated_at: string;
-          completed_at: string | null;
+          id: string; source_type: string; source_label: string; started_by: string | null;
+          status: ImportBatchStatus; raw_file_path: string | null;
+          total_rows: number; processed_rows: number; approved_rows: number;
+          rejected_rows: number; error_count: number;
+          started_at: string | null; finished_at: string | null;
+          created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          name: string;
-          source: string;
-          status?: ImportBatchStatus;
-          total_records?: number;
-          processed_records?: number;
-          error_count?: number;
-          created_by?: string | null;
+          id?: string; source_type: string; source_label: string; started_by?: string | null;
+          status?: ImportBatchStatus; raw_file_path?: string | null;
+          total_rows?: number; processed_rows?: number; approved_rows?: number;
+          rejected_rows?: number; error_count?: number;
+          started_at?: string | null; finished_at?: string | null;
+          created_at?: string; updated_at?: string;
         };
         Update: {
-          status?: ImportBatchStatus;
-          total_records?: number;
-          processed_records?: number;
-          error_count?: number;
-          completed_at?: string | null;
+          source_type?: string; source_label?: string; started_by?: string | null;
+          status?: ImportBatchStatus; raw_file_path?: string | null;
+          total_rows?: number; processed_rows?: number; approved_rows?: number;
+          rejected_rows?: number; error_count?: number;
+          started_at?: string | null; finished_at?: string | null; updated_at?: string;
         };
+        Relationships: [];
       };
       import_candidates: {
         Row: {
-          id: string;
-          batch_id: string;
-          status: ImportCandidateStatus;
-          raw_data: Json;
-          normalized_data: Json | null;
-          matched_doctor_id: string | null;
-          confidence_score: number;
-          merge_decision: MergeDecision | null;
-          admin_notes: string | null;
-          created_at: string;
-          updated_at: string;
+          id: string; batch_id: string; entity_kind: string; status: ImportCandidateStatus;
+          source_external_id: string | null; source_url: string | null; raw_json: Json;
+          normalized_name: string | null; normalized_website_domain: string | null;
+          normalized_phone: string | null; city: string | null; postal_code: string | null;
+          specialty_text: string | null; confidence_score: number;
+          matched_doctor_id: string | null; matched_clinic_id: string | null;
+          merge_decision: MergeDecision | null; reviewer_id: string | null;
+          reviewer_notes: string | null; created_at: string; updated_at: string;
         };
         Insert: {
-          id?: string;
-          batch_id: string;
-          status?: ImportCandidateStatus;
-          raw_data: Json;
-          normalized_data?: Json | null;
-          matched_doctor_id?: string | null;
-          confidence_score?: number;
-          merge_decision?: MergeDecision | null;
+          id?: string; batch_id: string; entity_kind: string; status?: ImportCandidateStatus;
+          source_external_id?: string | null; source_url?: string | null; raw_json: Json;
+          normalized_name?: string | null; normalized_website_domain?: string | null;
+          normalized_phone?: string | null; city?: string | null; postal_code?: string | null;
+          specialty_text?: string | null; confidence_score?: number;
+          matched_doctor_id?: string | null; matched_clinic_id?: string | null;
+          merge_decision?: MergeDecision | null; reviewer_id?: string | null;
+          reviewer_notes?: string | null; created_at?: string; updated_at?: string;
         };
         Update: {
           status?: ImportCandidateStatus;
-          normalized_data?: Json | null;
-          matched_doctor_id?: string | null;
-          confidence_score?: number;
-          merge_decision?: MergeDecision | null;
-          admin_notes?: string | null;
+          normalized_name?: string | null; normalized_website_domain?: string | null;
+          normalized_phone?: string | null; city?: string | null; postal_code?: string | null;
+          specialty_text?: string | null; confidence_score?: number;
+          matched_doctor_id?: string | null; matched_clinic_id?: string | null;
+          merge_decision?: MergeDecision | null; reviewer_id?: string | null;
+          reviewer_notes?: string | null; updated_at?: string;
         };
+        Relationships: [];
       };
       merge_events: {
         Row: {
-          id: string;
-          source_doctor_id: string;
-          target_doctor_id: string;
-          performed_by: string | null;
-          merge_data: Json;
-          created_at: string;
+          id: string; candidate_id: string; target_doctor_id: string | null;
+          target_clinic_id: string | null; decided_by: string | null; decision: MergeDecision;
+          before_json: Json | null; after_json: Json | null; created_at: string;
         };
         Insert: {
-          id?: string;
-          source_doctor_id: string;
-          target_doctor_id: string;
-          performed_by?: string | null;
-          merge_data: Json;
+          id?: string; candidate_id: string; target_doctor_id?: string | null;
+          target_clinic_id?: string | null; decided_by?: string | null; decision: MergeDecision;
+          before_json?: Json | null; after_json?: Json | null; created_at?: string;
         };
-        Update: never;
+        Update: {
+          target_doctor_id?: string | null; target_clinic_id?: string | null;
+          decided_by?: string | null; decision?: MergeDecision;
+          before_json?: Json | null; after_json?: Json | null;
+        };
+        Relationships: [];
       };
       job_runs: {
         Row: {
-          id: string;
-          job_name: string;
-          status: string;
-          started_at: string;
-          completed_at: string | null;
-          result: Json | null;
-          error: string | null;
+          id: string; job_name: string; trigger_type: string; status: string;
+          started_by: string | null; input_json: Json | null; output_json: Json | null;
+          error_text: string | null; started_at: string; finished_at: string | null;
         };
         Insert: {
-          id?: string;
-          job_name: string;
-          status?: string;
-          started_at?: string;
-          result?: Json | null;
-          error?: string | null;
+          id?: string; job_name: string; trigger_type: string; status: string;
+          started_by?: string | null; input_json?: Json | null; output_json?: Json | null;
+          error_text?: string | null; started_at?: string; finished_at?: string | null;
         };
         Update: {
-          status?: string;
-          completed_at?: string | null;
-          result?: Json | null;
-          error?: string | null;
+          status?: string; output_json?: Json | null; error_text?: string | null;
+          finished_at?: string | null;
         };
+        Relationships: [];
       };
-      doctor_clinic_links: {
+      source_records: {
         Row: {
-          id: string;
-          doctor_id: string;
-          clinic_id: string;
-          created_at: string;
+          id: string; entity_type: string; entity_id: string; source_type: string;
+          source_url: string | null; raw_json: Json | null; checksum: string | null;
+          imported_at: string; last_seen_at: string | null;
         };
         Insert: {
-          id?: string;
-          doctor_id: string;
-          clinic_id: string;
+          id?: string; entity_type: string; entity_id: string; source_type: string;
+          source_url?: string | null; raw_json?: Json | null; checksum?: string | null;
+          imported_at?: string; last_seen_at?: string | null;
         };
-        Update: never;
+        Update: { source_url?: string | null; raw_json?: Json | null; checksum?: string | null; last_seen_at?: string | null; };
+        Relationships: [];
+      };
+      audit_logs: {
+        Row: {
+          id: string; actor_user_id: string | null; event_name: string;
+          entity_type: string | null; entity_id: string | null;
+          before_json: Json | null; after_json: Json | null;
+          ip: string | null; user_agent: string | null; created_at: string;
+        };
+        Insert: {
+          id?: string; actor_user_id?: string | null; event_name: string;
+          entity_type?: string | null; entity_id?: string | null;
+          before_json?: Json | null; after_json?: Json | null;
+          ip?: string | null; user_agent?: string | null; created_at?: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
       };
     };
-    Views: Record<string, never>;
+
+    Views: {
+      publish_queue: {
+        Row: {
+          id: string; slug: string; public_display_name: string; profile_status: ProfileStatus;
+          is_claimed: boolean; is_verified: boolean; is_premium: boolean; source_confidence: number;
+          has_location: boolean; has_procedure: boolean; has_specialty: boolean;
+        };
+        Relationships: [];
+      };
+      review_moderation_queue: {
+        Row: {
+          id: string; doctor_id: string; public_display_name: string; doctor_slug: string;
+          rating_overall: number; title: string | null; body: string | null;
+          verification_status: ReviewVerificationStatus; moderation_status: ReviewModerationStatus;
+          created_at: string;
+        };
+        Relationships: [];
+      };
+    };
+
     Functions: {
       search_doctors: {
         Args: {
-          query_text?: string;
-          city?: string;
-          procedure_slug?: string;
-          limit_count?: number;
-          offset_count?: number;
+          p_query?: string | null;
+          p_city?: string | null;
+          p_procedure_slug?: string | null;
+          p_limit?: number;
+          p_offset?: number;
         };
-        Returns: DoctorSearchResult[];
+        Returns: Array<{
+          doctor_id: string;
+          slug: string;
+          public_display_name: string;
+          city: string | null;
+          specialty: string | null;
+          is_verified: boolean;
+          is_premium: boolean;
+          rank: number;
+        }>;
       };
     };
-    Enums: {
-      user_role: UserRole;
-      profile_status: ProfileStatus;
-      verification_level: VerificationLevel;
-      claim_status: ClaimStatus;
-      lead_status: LeadStatus;
-      review_verification_status: ReviewVerificationStatus;
-      review_moderation_status: ReviewModerationStatus;
-      media_visibility: MediaVisibility;
-      media_kind: MediaKind;
-      procedure_type: ProcedureType;
-      import_batch_status: ImportBatchStatus;
-      import_candidate_status: ImportCandidateStatus;
-      merge_decision: MergeDecision;
-      claim_verification_method: ClaimVerificationMethod;
-    };
   };
-};
-
-export type UserRole = "user" | "doctor" | "admin";
-export type ProfileStatus = "draft" | "pending_review" | "published" | "hidden" | "suspended";
-export type VerificationLevel = "unverified" | "email_verified" | "document_verified" | "premium";
-export type ClaimStatus = "pending" | "in_review" | "approved" | "rejected" | "withdrawn";
-export type LeadStatus = "new" | "viewed" | "contacted" | "won" | "lost" | "spam";
-export type ReviewVerificationStatus = "unverified" | "verified_patient" | "verified_purchase";
-export type ReviewModerationStatus = "pending" | "approved" | "rejected" | "flagged";
-export type MediaVisibility = "public" | "private" | "admin_only";
-export type MediaKind =
-  | "profile_photo"
-  | "clinic_photo"
-  | "gallery"
-  | "verification_document"
-  | "certificate";
-export type ProcedureType = "surgical" | "non_surgical" | "dental" | "diagnostic";
-export type ImportBatchStatus = "pending" | "processing" | "completed" | "failed" | "cancelled";
-export type ImportCandidateStatus =
-  | "pending"
-  | "matched"
-  | "new_profile"
-  | "merged"
-  | "ignored"
-  | "error";
-export type MergeDecision = "merge" | "new_profile" | "ignore";
-export type ClaimVerificationMethod =
-  | "domain_email"
-  | "document_upload"
-  | "phone_callback"
-  | "manual";
-
-export type DoctorSearchResult = {
-  id: string;
-  slug: string;
-  first_name: string;
-  last_name: string;
-  title: string | null;
-  specialty_name: string | null;
-  city: string | null;
-  profile_image_url: string | null;
-  is_premium: boolean;
-  verification_level: VerificationLevel;
-  review_count: number;
-  avg_rating: number | null;
-  procedure_names: string[];
-};
-
-export type Tables<T extends keyof Database["public"]["Tables"]> =
-  Database["public"]["Tables"][T]["Row"];
-export type TablesInsert<T extends keyof Database["public"]["Tables"]> =
-  Database["public"]["Tables"][T]["Insert"];
-export type TablesUpdate<T extends keyof Database["public"]["Tables"]> =
-  Database["public"]["Tables"][T]["Update"];
-export type Enums<T extends keyof Database["public"]["Enums"]> =
-  Database["public"]["Enums"][T];
+}

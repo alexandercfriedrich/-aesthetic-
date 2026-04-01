@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/rebuild-sitemaps",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/claim-reminders",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/reimport-official-data",
+      "schedule": "0 2 * * 1"
+    },
+    {
+      "path": "/api/cron/review-digest",
+      "schedule": "0 7 * * *"
+    }
+  ]
+}
