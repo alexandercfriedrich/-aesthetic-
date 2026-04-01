@@ -28,12 +28,8 @@ create table public.procedures (
   recovery_md text,
   faq_md text,
   is_active boolean not null default true,
-  search_text text generated always as (
-    public.normalize_text(name_de || ' ' || array_to_string(synonyms, ' '))
-  ) stored,
-  fts tsvector generated always as (
-    to_tsvector('simple', public.normalize_text(name_de || ' ' || array_to_string(synonyms, ' ')))
-  ) stored,
+  search_text text,
+  fts tsvector,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -84,18 +80,8 @@ create table public.doctor_profiles (
   source_type text,
   source_url text,
   last_verified_at timestamptz,
-  search_text text generated always as (
-    public.normalize_text(
-      coalesce(public_display_name,'') || ' ' ||
-      coalesce(short_bio,'') || ' ' ||
-      coalesce(long_bio,'')
-    )
-  ) stored,
-  fts tsvector generated always as (
-    setweight(to_tsvector('simple', public.normalize_text(coalesce(public_display_name,''))), 'A') ||
-    setweight(to_tsvector('simple', public.normalize_text(coalesce(short_bio,''))), 'B') ||
-    setweight(to_tsvector('simple', public.normalize_text(coalesce(long_bio,''))), 'C')
-  ) stored,
+  search_text text,
+  fts tsvector,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -231,6 +217,40 @@ create table public.media_assets (
   unique (bucket_id, object_path)
 );
 
+-- -------------------------------------------------------
+-- Trigger functions to maintain search_text + fts columns
+-- (replaces GENERATED ALWAYS AS which forbids user-defined
+--  functions even if declared IMMUTABLE in Supabase/PG14+)
+-- -------------------------------------------------------
+
+create or replace function public.trg_procedures_search()
+returns trigger language plpgsql as $$
+begin
+  new.search_text := public.normalize_text(
+    new.name_de || ' ' || array_to_string(new.synonyms, ' ')
+  );
+  new.fts := to_tsvector('simple', new.search_text);
+  return new;
+end;
+$$;
+
+create or replace function public.trg_doctor_profiles_search()
+returns trigger language plpgsql as $$
+begin
+  new.search_text := public.normalize_text(
+    coalesce(new.public_display_name, '') || ' ' ||
+    coalesce(new.short_bio, '') || ' ' ||
+    coalesce(new.long_bio, '')
+  );
+  new.fts :=
+    setweight(to_tsvector('simple', public.normalize_text(coalesce(new.public_display_name, ''))), 'A') ||
+    setweight(to_tsvector('simple', public.normalize_text(coalesce(new.short_bio, ''))), 'B') ||
+    setweight(to_tsvector('simple', public.normalize_text(coalesce(new.long_bio, ''))), 'C');
+  return new;
+end;
+$$;
+
+-- updated_at triggers
 create trigger trg_procedures_updated_at
 before update on public.procedures
 for each row execute function public.set_updated_at();
@@ -258,3 +278,12 @@ for each row execute function public.set_updated_at();
 create trigger trg_reviews_updated_at
 before update on public.reviews
 for each row execute function public.set_updated_at();
+
+-- search_text + fts triggers
+create trigger trg_procedures_search
+before insert or update on public.procedures
+for each row execute function public.trg_procedures_search();
+
+create trigger trg_doctor_profiles_search
+before insert or update on public.doctor_profiles
+for each row execute function public.trg_doctor_profiles_search();
