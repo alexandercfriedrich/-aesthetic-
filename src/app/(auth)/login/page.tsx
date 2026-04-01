@@ -4,11 +4,12 @@ import { loginAction } from "./actions";
 
 export const metadata: Metadata = { title: "Anmelden | aesthetic" };
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { redirect?: string; error?: string };
+  searchParams: Promise<{ redirect?: string; error?: string }>;
 }) {
+  const params = await searchParams;
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm rounded-2xl border bg-white p-8 shadow-sm">
@@ -16,14 +17,14 @@ export default function LoginPage({
           aesthetic
         </Link>
         <h1 className="mb-6 text-center text-xl font-semibold">Anmelden</h1>
-        {searchParams.error && searchParams.error.length <= 200 && (
+        {params.error && params.error.length <= 200 && (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {searchParams.error}
+            {params.error}
           </div>
         )}
         <form action={loginAction} className="space-y-4">
-          {searchParams.redirect && (
-            <input type="hidden" name="redirect" value={searchParams.redirect} />
+          {params.redirect && (
+            <input type="hidden" name="redirect" value={params.redirect} />
           )}
           <div>
             <label className="mb-1.5 block text-sm font-medium">E-Mail</label>

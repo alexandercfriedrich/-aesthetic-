@@ -6,9 +6,6 @@ import {
   Star,
   MessageSquare,
   Upload,
-  GitMerge,
-  Zap,
-  ClipboardList,
 } from "lucide-react";
 
 const NAV = [
@@ -18,9 +15,6 @@ const NAV = [
   { href: "/admin/reviews", icon: Star, label: "Reviews" },
   { href: "/admin/leads", icon: MessageSquare, label: "Leads" },
   { href: "/admin/imports", icon: Upload, label: "Imports" },
-  { href: "/admin/dedupe", icon: GitMerge, label: "Dedupe" },
-  { href: "/admin/jobs", icon: Zap, label: "Jobs" },
-  { href: "/admin/audit", icon: ClipboardList, label: "Audit" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

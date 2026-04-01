@@ -4,11 +4,12 @@ import { registerAction } from "./actions";
 
 export const metadata: Metadata = { title: "Registrieren | aesthetic" };
 
-export default function RegistrierenPage({
+export default async function RegistrierenPage({
   searchParams,
 }: {
-  searchParams: { error?: string };
+  searchParams: Promise<{ error?: string }>;
 }) {
+  const params = await searchParams;
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm rounded-2xl border bg-white p-8 shadow-sm">
@@ -16,9 +17,9 @@ export default function RegistrierenPage({
           aesthetic
         </Link>
         <h1 className="mb-6 text-center text-xl font-semibold">Konto erstellen</h1>
-        {searchParams.error && searchParams.error.length <= 200 && (
+        {params.error && params.error.length <= 200 && (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {searchParams.error}
+            {params.error}
           </div>
         )}
         <form action={registerAction} className="space-y-4">

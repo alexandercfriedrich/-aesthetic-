@@ -9,7 +9,7 @@ import { DoctorReviewsTab } from "./tabs/DoctorReviewsTab";
 import { DoctorSourcesTab } from "./tabs/DoctorSourcesTab";
 import { DoctorPublishingTab } from "./tabs/DoctorPublishingTab";
 import { DoctorAuditTab } from "./tabs/DoctorAuditTab";
-import type { AdminDoctorDetail } from "@/lib/queries/admin-doctors";
+import type { AdminDoctorDetail } from "@/lib/queries/doctors";
 
 export function DoctorAdminTabs({ doctor }: { doctor: AdminDoctorDetail }) {
   return (

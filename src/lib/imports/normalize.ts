@@ -6,7 +6,10 @@
 /** Strip everything except digits and leading + */
 export function normalizePhone(input?: string | null): string | null {
   if (!input) return null;
-  const cleaned = input.replace(/[^\d+]/g, "");
+  const trimmed = input.trim();
+  const hasLeadingPlus = trimmed.startsWith("+");
+  const digitsOnly = trimmed.replace(/\D/g, "");
+  const cleaned = hasLeadingPlus ? `+${digitsOnly}` : digitsOnly;
   return cleaned.length >= 4 ? cleaned : null;
 }
 

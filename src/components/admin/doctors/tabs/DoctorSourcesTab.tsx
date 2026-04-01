@@ -1,5 +1,4 @@
 import { ExternalLink } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import type { AdminDoctorDetail } from "@/lib/queries/doctors";
 
 type SourceRecord = {

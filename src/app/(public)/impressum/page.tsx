@@ -23,29 +23,64 @@ export default function ImpressumPage() {
         <div className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <section>
             <h2 className="mb-3 text-base font-semibold text-foreground">
-              Angaben gemäß § 5 ECG (E-Commerce-Gesetz)
+              Angaben gemäß § 5 ECG, § 25 MedienG und § 14 UGB
             </h2>
-            <p>aesthetic – Vergleichsplattform für ästhetische Medizin in Österreich</p>
+            <p>
+              aesthetic – Vergleichs- und Anfrageplattform für ästhetische Medizin in Österreich
+            </p>
           </section>
 
           <section>
-            <h2 className="mb-3 text-base font-semibold text-foreground">Kontakt</h2>
+            <h2 className="mb-3 text-base font-semibold text-foreground">Diensteanbieter</h2>
+            <p>VAMONOS e.U.</p>
+            <p>Unternehmensgegenstand: Betrieb digitaler Vergleichs- und Informationsplattformen</p>
+            <p>Firmensitz: Wien, Österreich</p>
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-foreground">
+              Kontakt
+            </h2>
             <p>
               E-Mail:{" "}
               <a href="mailto:hello@aesthetic.at" className="text-primary hover:underline">
                 hello@aesthetic.at
               </a>
             </p>
+            <p>
+              Datenschutz-Anfragen:{" "}
+              <a href="mailto:datenschutz@aesthetic.at" className="text-primary hover:underline">
+                datenschutz@aesthetic.at
+              </a>
+            </p>
           </section>
 
           <section>
             <h2 className="mb-3 text-base font-semibold text-foreground">
-              Haftungsausschluss
+              Aufsichtsbehörde / Kammer
+            </h2>
+            <p>Zuständige Behörde gemäß Unternehmenssitz in Österreich.</p>
+            <p>Es gelten die berufsrechtlichen Vorschriften in Österreich.</p>
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-foreground">
+              Redaktionell verantwortlich
+            </h2>
+            <p>
+              Verantwortlich für den Inhalt gemäß § 25 MedienG: Betreiber der Plattform
+              (siehe Diensteanbieter und Kontakt).
+            </p>
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-foreground">
+              Haftung für Inhalte
             </h2>
             <p>
               Die Inhalte dieser Website wurden mit größtmöglicher Sorgfalt erstellt. Für die
-              Richtigkeit, Vollständigkeit und Aktualität der Inhalte kann jedoch keine Gewähr
-              übernommen werden.
+              Richtigkeit, Vollständigkeit und Aktualität der Inhalte wird jedoch keine Gewähr
+              übernommen.
             </p>
             <p className="mt-2">
               Die auf dieser Plattform bereitgestellten Informationen zu medizinischen Behandlungen
@@ -78,6 +113,10 @@ export default function ImpressumPage() {
               >
                 ec.europa.eu/consumers/odr
               </a>
+            </p>
+            <p className="mt-2">
+              Wir sind nicht verpflichtet und nicht bereit, an einem Streitbeilegungsverfahren
+              vor einer Verbraucherschlichtungsstelle teilzunehmen.
             </p>
           </section>
 

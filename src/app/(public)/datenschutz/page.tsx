@@ -232,7 +232,7 @@ export default function DatenschutzPage() {
                   <tr>
                     <td className="py-2 pr-4 font-mono align-top">sb-*-auth-token</td>
                     <td className="py-2 pr-4 align-top">Supabase-Authentifizierungssitzung (JWT)</td>
-                    <td className="py-2 align-top">Sitzung / bis zu 7 Tage bei „Angemeldet bleiben"</td>
+                    <td className="py-2 align-top">Sitzung / bis zu 7 Tage bei &bdquo;Angemeldet bleiben&ldquo;</td>
                   </tr>
                   <tr>
                     <td className="py-2 pr-4 font-mono align-top">__vercel_*</td>
@@ -288,7 +288,7 @@ export default function DatenschutzPage() {
               </li>
               <li>
                 <strong className="text-foreground">Löschung</strong> (Art. 17 DSGVO) –
-                „Recht auf Vergessenwerden", sofern keine gesetzlichen Aufbewahrungspflichten
+                &bdquo;Recht auf Vergessenwerden&ldquo;, sofern keine gesetzlichen Aufbewahrungspflichten
                 entgegenstehen
               </li>
               <li>

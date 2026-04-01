@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { MergeDecisionPanel } from "@/components/admin/imports/MergeDecisionPanel";
 
@@ -61,9 +62,9 @@ export default async function ImportBatchDetailPage({ params }: PageProps) {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <a href="/admin/imports" className="hover:text-foreground transition-colors">
+          <Link href="/admin/imports" className="hover:text-foreground transition-colors">
             Imports
-          </a>
+          </Link>
           <span>/</span>
           <span>{batch.source_label}</span>
         </div>
@@ -165,7 +166,7 @@ export default async function ImportBatchDetailPage({ params }: PageProps) {
             <div className="rounded-2xl border bg-amber-50 border-amber-200 px-5 py-4 text-xs text-amber-700">
               <strong>Merge-Regeln:</strong> Geclaimte Profile niemals
               automatisch überschreiben. Hochwertigere Quellen schlagen schwache.
-              Medien nie automatisch auf „public" setzen.
+              Medien nie automatisch auf &bdquo;public&quot; setzen.
             </div>
           </div>
         )}

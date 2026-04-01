@@ -28,42 +28,11 @@ async function assertAdminOrEditor() {
  * 3. Update claim status → approved.
  */
 export async function approveDoctorClaimAction(claimId: string) {
-  const { supabase, userId } = await assertAdminOrEditor();
-
-  const { data: claim, error } = await supabase
-    .from("profile_claims")
-    .select("*")
-    .eq("id", claimId)
-    .single();
-
-  if (error || !claim) throw new Error("Claim nicht gefunden");
-  if (!claim.doctor_id || !claim.claimant_user_id) {
-    throw new Error("Claim hat keine Arzt-ID oder Claimant-ID");
-  }
-
-  const { error: doctorErr } = await supabase
-    .from("doctor_profiles")
-    .update({
-      owner_user_id: claim.claimant_user_id,
-      is_claimed: true,
-      is_verified: true,
-      verification_level: "basic",
-      last_verified_at: new Date().toISOString(),
-    })
-    .eq("id", claim.doctor_id);
-
-  if (doctorErr) throw doctorErr;
-
-  const { error: claimErr } = await supabase
-    .from("profile_claims")
-    .update({
-      status: "approved",
-      reviewed_at: new Date().toISOString(),
-      approved_user_id: userId,
-    })
-    .eq("id", claimId);
-
-  if (claimErr) throw claimErr;
+  const { supabase } = await assertAdminOrEditor();
+  const { error } = await supabase.rpc("approve_doctor_claim" as never, {
+    p_claim_id: claimId,
+  } as never);
+  if (error) throw error;
 
   revalidatePath("/admin/claims");
   revalidatePath("/dashboard");
@@ -73,14 +42,13 @@ export async function approveDoctorClaimAction(claimId: string) {
  * Reject a claim with optional reason stored in notes.
  */
 export async function rejectDoctorClaimAction(claimId: string) {
-  const { supabase, userId } = await assertAdminOrEditor();
+  const { supabase } = await assertAdminOrEditor();
 
   const { error } = await supabase
     .from("profile_claims")
     .update({
       status: "rejected",
       reviewed_at: new Date().toISOString(),
-      approved_user_id: userId,
     })
     .eq("id", claimId);
 

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { AdminDoctorDetail } from "@/lib/queries/admin-doctors";
+import type { AdminDoctorDetail } from "@/lib/queries/doctors";
 
 type ProfileStatus = "draft" | "pending_review" | "published" | "hidden" | "suspended";
 type VerificationLevel = "unverified" | "email_verified" | "document_verified" | "premium";
@@ -44,7 +44,7 @@ function getInitials(first: string, last: string) {
 }
 
 function getDisplayName(doctor: AdminDoctorDetail) {
-  const parts = [doctor.title, doctor.first_name, doctor.last_name].filter(Boolean);
+  const parts = [doctor.title_prefix, doctor.first_name, doctor.last_name].filter(Boolean);
   return parts.join(" ");
 }
 
@@ -72,7 +72,7 @@ export function DoctorAdminHeader({ doctor }: { doctor: AdminDoctorDetail }) {
       <div className="flex flex-wrap items-start justify-between gap-4 p-5">
         <div className="flex items-center gap-4">
           <Avatar className="h-14 w-14 rounded-xl border shadow-sm">
-            <AvatarImage src={doctor.profile_image_url ?? undefined} alt={displayName} />
+            <AvatarImage src={undefined} alt={displayName} />
             <AvatarFallback className="rounded-xl bg-primary/10 text-primary font-semibold">
               {getInitials(doctor.first_name, doctor.last_name)}
             </AvatarFallback>
@@ -110,9 +110,9 @@ export function DoctorAdminHeader({ doctor }: { doctor: AdminDoctorDetail }) {
               )}
 
               {/* Specialty */}
-              {(doctor.specialties as { name?: string } | null)?.name && (
+              {(doctor.specialties as { name_de?: string } | null)?.name_de && (
                 <span className="text-sm text-muted-foreground">
-                  {(doctor.specialties as { name: string }).name}
+                  {(doctor.specialties as { name_de: string }).name_de}
                 </span>
               )}
             </div>
@@ -160,16 +160,16 @@ export function DoctorAdminHeader({ doctor }: { doctor: AdminDoctorDetail }) {
         <MetaItem label="ID" value={doctor.id.slice(0, 8) + "…"} mono />
         <Separator orientation="vertical" className="h-4" />
         <MetaItem label="Slug" value={`/arzt/${doctor.slug}`} mono />
-        {doctor.email && (
+        {doctor.email_public && (
           <>
             <Separator orientation="vertical" className="h-4" />
-            <MetaItem label="E-Mail" value={doctor.email} />
+            <MetaItem label="E-Mail" value={doctor.email_public} />
           </>
         )}
-        {doctor.phone && (
+        {doctor.phone_public && (
           <>
             <Separator orientation="vertical" className="h-4" />
-            <MetaItem label="Tel." value={doctor.phone} />
+            <MetaItem label="Tel." value={doctor.phone_public} />
           </>
         )}
         <Separator orientation="vertical" className="h-4" />

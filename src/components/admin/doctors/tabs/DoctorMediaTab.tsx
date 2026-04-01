@@ -16,7 +16,7 @@ type MediaRow = {
 };
 
 const kindLabel: Record<string, string> = {
-  portrait: "Protraitfoto",
+  portrait: "Portraitfoto",
   clinic: "Klinikbild",
   certificate: "Zertifikat",
   logo: "Logo",

@@ -100,7 +100,6 @@ export type AdminDoctorDetail = NonNullable<Awaited<ReturnType<typeof getAdminDo
 
 export async function listAdminDoctors(params: {
   status?: string;
-  search?: string;
   limit?: number;
   offset?: number;
 }) {

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getDoctorBySlug } from "@/lib/queries/doctors";
-import { ShieldCheck, Star, Globe, Phone, Mail, MapPin, AlertCircle } from "lucide-react";
+import { ShieldCheck, Star, Globe, Phone, MapPin, AlertCircle } from "lucide-react";
 import { LeadFormSection } from "@/components/forms/LeadFormSection";
 
 type PageProps = { params: Promise<{ slug: string }> };

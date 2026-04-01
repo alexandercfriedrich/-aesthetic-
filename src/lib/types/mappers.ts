@@ -53,13 +53,6 @@ export function toDoctorProfileVM(row: DoctorProfileJoined): DoctorProfileVM {
   );
   const mediaAssets = row.media_assets ?? [];
 
-  const portrait = (mediaAssets as MediaAssetRow[]).find(
-    (m) => m.media_kind === "portrait" && m.visibility === "public" && m.approved_at,
-  );
-  const profileImageUrl = portrait
-    ? `${SUPABASE_STORAGE_URL}/${portrait.bucket_id}/${portrait.object_path}`
-    : null;
-
   const procedureVMs = (
     procedures as Array<DoctorProcedureRow & { procedures: Pick<ProcedureRow, "id" | "slug" | "name_de"> | null }>
   )
@@ -127,7 +120,6 @@ export function toDoctorProfileVM(row: DoctorProfileJoined): DoctorProfileVM {
     procedures: procedureVMs,
     reviews: reviewVMs,
     media: mediaVMs,
-    profileImageUrl,
   };
 }
 

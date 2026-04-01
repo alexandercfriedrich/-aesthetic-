@@ -59,7 +59,7 @@ const NAV_ITEMS = [
   { href: "/admin/claims", label: "Claims" },
   { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/leads", label: "Leads" },
-  { href: "/admin/content", label: "Content" },
+  { href: "/admin/imports", label: "Imports" },
 ];
 
 export default async function AdminDashboardPage() {
@@ -119,7 +119,7 @@ export default async function AdminDashboardPage() {
       icon: Zap,
       color: "text-slate-600",
       bg: "bg-slate-100",
-      href: "/admin/jobs",
+      href: "/admin",
     },
   ];
 

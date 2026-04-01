@@ -28,7 +28,7 @@ async function assertAdminOrEditor() {
 export async function moderateReviewAction(
   reviewId: string,
   status: "published" | "rejected" | "flagged",
-) {
+) : Promise<void> {
   const { supabase } = await assertAdminOrEditor();
 
   const { error } = await supabase
@@ -39,5 +39,4 @@ export async function moderateReviewAction(
   if (error) throw error;
 
   revalidatePath("/admin/reviews");
-  return { ok: true };
 }

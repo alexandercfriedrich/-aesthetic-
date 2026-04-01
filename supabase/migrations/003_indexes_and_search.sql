@@ -95,8 +95,8 @@ as $$
     )
     and (
       nq.c is null
-      or lower(l.city) % nq.c
-      or lower(l.city) = nq.c
+      or public.normalize_text(l.city) % nq.c
+      or public.normalize_text(l.city) = nq.c
     )
     and (
       p_procedure_slug is null

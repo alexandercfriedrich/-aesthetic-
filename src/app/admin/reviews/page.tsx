@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { AlertTriangle } from "lucide-react";
+import { moderateReviewAction } from "./actions";
 
 async function getReviewQueue() {
   const supabase = await createClient();
@@ -86,12 +87,22 @@ export default async function AdminReviewsPage() {
                   </div>
                 </div>
                 <div className="shrink-0 flex flex-col gap-2">
-                  <button className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors">
-                    Freischalten
-                  </button>
-                  <button className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50 transition-colors">
-                    Ablehnen
-                  </button>
+                  <form action={moderateReviewAction.bind(null, review.id, "published")}>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors"
+                    >
+                      Freischalten
+                    </button>
+                  </form>
+                  <form action={moderateReviewAction.bind(null, review.id, "rejected")}>
+                    <button
+                      type="submit"
+                      className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50 transition-colors"
+                    >
+                      Ablehnen
+                    </button>
+                  </form>
                 </div>
               </div>
             </div>
