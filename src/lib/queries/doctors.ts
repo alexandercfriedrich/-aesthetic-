@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { ProfileStatus } from "@/types/database";
 
 export async function searchDoctors(params: {
   query?: string;
@@ -120,7 +121,7 @@ export async function listAdminDoctors(params: {
     .range(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 50) - 1);
 
   if (params.status) {
-    query = query.eq("profile_status", params.status as never);
+    query = query.eq("profile_status", params.status as ProfileStatus);
   }
 
   const { data, error, count } = await query;

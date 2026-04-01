@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { ClaimStatus } from "@/types/database";
 
 export async function getClaimsQueue(params?: { status?: string; limit?: number }) {
   const supabase = await createClient();
@@ -16,7 +17,7 @@ export async function getClaimsQueue(params?: { status?: string; limit?: number 
     .limit(params?.limit ?? 50);
 
   if (params?.status) {
-    query = query.eq("status", params.status as never);
+    query = query.eq("status", params.status as ClaimStatus);
   }
 
   const { data, error, count } = await query;

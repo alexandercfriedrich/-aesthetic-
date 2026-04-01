@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { LeadStatus } from "@/types/database";
 
 export async function getDashboardLeads(doctorId: string) {
   const supabase = await createClient();
@@ -30,7 +31,7 @@ export async function getAdminLeads(params?: { status?: string; limit?: number; 
     .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 50) - 1);
 
   if (params?.status) {
-    query = query.eq("status", params.status as never);
+    query = query.eq("status", params.status as LeadStatus);
   }
 
   const { data, error, count } = await query;
@@ -44,7 +45,7 @@ export async function updateLeadStatus(id: string, status: string) {
 
   const { error } = await supabase
     .from("lead_requests")
-    .update({ status: status as never })
+    .update({ status: status as LeadStatus })
     .eq("id", id);
 
   if (error) throw error;
