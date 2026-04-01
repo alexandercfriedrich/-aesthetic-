@@ -28,6 +28,9 @@ export type MergeDecision = "create_new" | "merge_into_existing" | "ignore";
 export type ClaimVerificationMethod = "email_domain" | "document_upload" | "phone_callback" | "manual";
 
 export interface Database {
+  __InternalSupabase: {
+    PostgrestVersion: "12";
+  };
   public: {
     Tables: {
       app_users: {
@@ -125,7 +128,20 @@ export interface Database {
           source_type?: string | null; source_url?: string | null; last_verified_at?: string | null;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "doctor_profiles_owner_user_id_fkey";
+            columns: ["owner_user_id"];
+            referencedRelation: "app_users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "doctor_profiles_primary_specialty_id_fkey";
+            columns: ["primary_specialty_id"];
+            referencedRelation: "specialties";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       doctor_clinic_links: {
         Row: { id: string; doctor_id: string; clinic_id: string; role_label: string | null; is_primary: boolean; created_at: string; };
@@ -152,7 +168,20 @@ export interface Database {
           street?: string | null; house_number?: string | null; latitude?: number | null; longitude?: number | null;
           is_primary?: boolean; updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "locations_doctor_id_fkey";
+            columns: ["doctor_id"];
+            referencedRelation: "doctor_profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "locations_clinic_id_fkey";
+            columns: ["clinic_id"];
+            referencedRelation: "clinic_profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       doctor_procedures: {
         Row: {
@@ -175,7 +204,20 @@ export interface Database {
           price_note?: string | null; consultation_fee?: number | null; is_price_verified?: boolean;
           last_price_check_at?: string | null; is_active?: boolean; updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "doctor_procedures_doctor_id_fkey";
+            columns: ["doctor_id"];
+            referencedRelation: "doctor_profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "doctor_procedures_procedure_id_fkey";
+            columns: ["procedure_id"];
+            referencedRelation: "procedures";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       profile_claims: {
         Row: {
@@ -202,7 +244,14 @@ export interface Database {
           assigned_to?: string | null; reviewed_at?: string | null; approved_user_id?: string | null;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "profile_claims_doctor_id_fkey";
+            columns: ["doctor_id"];
+            referencedRelation: "doctor_profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       lead_requests: {
         Row: {
@@ -261,7 +310,14 @@ export interface Database {
           verification_status?: ReviewVerificationStatus; moderation_status?: ReviewModerationStatus;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "reviews_doctor_id_fkey";
+            columns: ["doctor_id"];
+            referencedRelation: "doctor_profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       media_assets: {
         Row: {
@@ -285,7 +341,14 @@ export interface Database {
           visibility?: MediaVisibility; media_kind?: MediaKind; sort_order?: number;
           approved_at?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "media_assets_doctor_id_fkey";
+            columns: ["doctor_id"];
+            referencedRelation: "doctor_profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       import_batches: {
         Row: {
@@ -453,5 +516,22 @@ export interface Database {
         }>;
       };
     };
+    Enums: {
+      user_role: UserRole;
+      profile_status: ProfileStatus;
+      verification_level: VerificationLevel;
+      claim_status: ClaimStatus;
+      lead_status: LeadStatus;
+      review_verification_status: ReviewVerificationStatus;
+      review_moderation_status: ReviewModerationStatus;
+      media_visibility: MediaVisibility;
+      media_kind: MediaKind;
+      procedure_type: ProcedureType;
+      import_batch_status: ImportBatchStatus;
+      import_candidate_status: ImportCandidateStatus;
+      merge_decision: MergeDecision;
+      claim_verification_method: ClaimVerificationMethod;
+    };
+    CompositeTypes: Record<string, never>;
   };
 }

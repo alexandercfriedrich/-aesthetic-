@@ -46,5 +46,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Redirect logged-in users away from auth pages
+  const authPaths = ["/login", "/registrieren"];
+  const isAuthPage = authPaths.includes(request.nextUrl.pathname);
+  if (isAuthPage && user) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
   return supabaseResponse;
 }

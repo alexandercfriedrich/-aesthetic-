@@ -67,16 +67,12 @@ export async function approveDoctorClaimAction(claimId: string) {
 
   revalidatePath("/admin/claims");
   revalidatePath("/dashboard");
-  return { ok: true };
 }
 
 /**
  * Reject a claim with optional reason stored in notes.
  */
-export async function rejectDoctorClaimAction(
-  claimId: string,
-  notes?: string,
-) {
+export async function rejectDoctorClaimAction(claimId: string) {
   const { supabase, userId } = await assertAdminOrEditor();
 
   const { error } = await supabase
@@ -85,14 +81,12 @@ export async function rejectDoctorClaimAction(
       status: "rejected",
       reviewed_at: new Date().toISOString(),
       approved_user_id: userId,
-      notes: notes ?? null,
     })
     .eq("id", claimId);
 
   if (error) throw error;
 
   revalidatePath("/admin/claims");
-  return { ok: true };
 }
 
 /**
@@ -115,5 +109,4 @@ export async function requestManualReviewAction(
   if (error) throw error;
 
   revalidatePath("/admin/claims");
-  return { ok: true };
 }

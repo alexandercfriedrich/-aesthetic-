@@ -18,6 +18,7 @@ export async function updateLeadStatusAction(leadId: string, status: string) {
     .single();
 
   if (!lead) throw new Error("Lead nicht gefunden");
+  if (!lead.doctor_id) throw new Error("Lead hat keine Arzt-ID");
 
   const { data: doctor } = await supabase
     .from("doctor_profiles")
@@ -30,7 +31,7 @@ export async function updateLeadStatusAction(leadId: string, status: string) {
 
   const { error } = await supabase
     .from("lead_requests")
-    .update({ status: status as never })
+    .update({ status: status as "viewed" | "contacted" | "won" | "lost" | "spam" })
     .eq("id", leadId);
 
   if (error) throw error;

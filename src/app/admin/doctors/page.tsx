@@ -69,10 +69,10 @@ export default async function AdminDoctorsPage() {
                   <td className="px-4 py-3 hidden sm:table-cell">
                     <div className="flex items-center gap-1.5">
                       {doc.is_verified && (
-                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" title="Verifiziert" />
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" aria-label="Verifiziert" />
                       )}
                       {doc.is_premium && (
-                        <Star className="h-3.5 w-3.5 text-amber-500" title="Premium" />
+                        <Star className="h-3.5 w-3.5 text-amber-500" aria-label="Premium" />
                       )}
                     </div>
                   </td>

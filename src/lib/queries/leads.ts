@@ -30,7 +30,7 @@ export async function getAdminLeads(params?: { status?: string; limit?: number; 
     .range(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 50) - 1);
 
   if (params?.status) {
-    query = query.eq("status", params.status);
+    query = query.eq("status", params.status as never);
   }
 
   const { data, error, count } = await query;

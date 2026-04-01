@@ -1,64 +1,57 @@
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
 import {
   Users,
   ShieldCheck,
   MessageSquare,
   Star,
   AlertTriangle,
-  Upload,
   Zap,
 } from "lucide-react";
 
-const KPI_CARDS = [
-  {
-    label: "Neue Claims",
-    value: "—",
-    icon: ShieldCheck,
-    color: "text-blue-600",
-    bg: "bg-blue-50",
-    href: "/admin/claims",
-  },
-  {
-    label: "Offene Reviews",
-    value: "—",
-    icon: Star,
-    color: "text-amber-600",
-    bg: "bg-amber-50",
-    href: "/admin/reviews",
-  },
-  {
-    label: "Neue Leads heute",
-    value: "—",
-    icon: MessageSquare,
-    color: "text-emerald-600",
-    bg: "bg-emerald-50",
-    href: "/admin/leads",
-  },
-  {
-    label: "Publish-ready",
-    value: "—",
-    icon: Users,
-    color: "text-purple-600",
-    bg: "bg-purple-50",
-    href: "/admin/doctors",
-  },
-  {
-    label: "Import-Fehler",
-    value: "—",
-    icon: AlertTriangle,
-    color: "text-rose-600",
-    bg: "bg-rose-50",
-    href: "/admin/imports",
-  },
-  {
-    label: "Laufende Jobs",
-    value: "—",
-    icon: Zap,
-    color: "text-slate-600",
-    bg: "bg-slate-100",
-    href: "/admin/jobs",
-  },
-];
+async function getAdminKpis() {
+  const supabase = await createClient();
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const [claims, reviews, leads, publishReady, importErrors, jobs] = await Promise.all([
+    supabase
+      .from("profile_claims")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "initiated"),
+    supabase
+      .from("reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("moderation_status", "pending"),
+    supabase
+      .from("lead_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "new")
+      .gte("created_at", todayStart.toISOString()),
+    supabase
+      .from("doctor_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_status", "draft"),
+    supabase
+      .from("import_batches")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "failed"),
+    supabase
+      .from("job_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "running"),
+  ]);
+
+  return {
+    newClaims: claims.count ?? 0,
+    pendingReviews: reviews.count ?? 0,
+    leadsToday: leads.count ?? 0,
+    publishReady: publishReady.count ?? 0,
+    importErrors: importErrors.count ?? 0,
+    runningJobs: jobs.count ?? 0,
+  };
+}
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard" },
@@ -69,7 +62,67 @@ const NAV_ITEMS = [
   { href: "/admin/content", label: "Content" },
 ];
 
-export default function AdminDashboardPage() {
+export default async function AdminDashboardPage() {
+  const kpis = await getAdminKpis().catch(() => ({
+    newClaims: 0,
+    pendingReviews: 0,
+    leadsToday: 0,
+    publishReady: 0,
+    importErrors: 0,
+    runningJobs: 0,
+  }));
+
+  const KPI_CARDS = [
+    {
+      label: "Neue Claims",
+      value: kpis.newClaims,
+      icon: ShieldCheck,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+      href: "/admin/claims",
+    },
+    {
+      label: "Offene Reviews",
+      value: kpis.pendingReviews,
+      icon: Star,
+      color: "text-amber-600",
+      bg: "bg-amber-50",
+      href: "/admin/reviews",
+    },
+    {
+      label: "Neue Leads heute",
+      value: kpis.leadsToday,
+      icon: MessageSquare,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
+      href: "/admin/leads",
+    },
+    {
+      label: "Publish-ready",
+      value: kpis.publishReady,
+      icon: Users,
+      color: "text-purple-600",
+      bg: "bg-purple-50",
+      href: "/admin/doctors",
+    },
+    {
+      label: "Import-Fehler",
+      value: kpis.importErrors,
+      icon: AlertTriangle,
+      color: "text-rose-600",
+      bg: "bg-rose-50",
+      href: "/admin/imports",
+    },
+    {
+      label: "Laufende Jobs",
+      value: kpis.runningJobs,
+      icon: Zap,
+      color: "text-slate-600",
+      bg: "bg-slate-100",
+      href: "/admin/jobs",
+    },
+  ];
+
   return (
     <div className="p-6">
       <div className="mb-8">

@@ -1,4 +1,8 @@
 import { getClaimsQueue } from "@/lib/queries/claims";
+import {
+  approveDoctorClaimAction,
+  rejectDoctorClaimAction,
+} from "./actions";
 
 const STATUS_COLORS: Record<string, string> = {
   initiated: "bg-blue-100 text-blue-700",
@@ -81,12 +85,26 @@ export default async function AdminClaimsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 transition-colors">
-                        Genehmigen
-                      </button>
-                      <button className="rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-slate-50 transition-colors">
-                        Ablehnen
-                      </button>
+                      {claim.status !== "approved" && claim.status !== "rejected" && (
+                        <>
+                          <form action={approveDoctorClaimAction.bind(null, claim.id)}>
+                            <button
+                              type="submit"
+                              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 transition-colors"
+                            >
+                              Genehmigen
+                            </button>
+                          </form>
+                          <form action={rejectDoctorClaimAction.bind(null, claim.id)}>
+                            <button
+                              type="submit"
+                              className="rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-slate-50 transition-colors"
+                            >
+                              Ablehnen
+                            </button>
+                          </form>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

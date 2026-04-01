@@ -16,7 +16,7 @@ export async function getClaimsQueue(params?: { status?: string; limit?: number 
     .limit(params?.limit ?? 50);
 
   if (params?.status) {
-    query = query.eq("status", params.status);
+    query = query.eq("status", params.status as never);
   }
 
   const { data, error, count } = await query;

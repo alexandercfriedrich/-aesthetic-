@@ -120,7 +120,7 @@ export async function listAdminDoctors(params: {
     .range(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 50) - 1);
 
   if (params.status) {
-    query = query.eq("profile_status", params.status);
+    query = query.eq("profile_status", params.status as never);
   }
 
   const { data, error, count } = await query;
