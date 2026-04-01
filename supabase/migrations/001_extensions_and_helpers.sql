@@ -3,9 +3,9 @@ create extension if not exists unaccent;
 create extension if not exists pg_trgm;
 create extension if not exists citext;
 
--- unaccent() is only STABLE by default because it uses a named config.
--- Using the two-argument form unaccent(regdictionary, text) referencing the
--- dictionary directly is IMMUTABLE and safe for use in generated columns and indexes.
+-- normalize_text: lowercases, strips accents, collapses whitespace.
+-- We cast 'unaccent'::regdictionary so Postgres resolves it at definition
+-- time and considers the call IMMUTABLE (safe for indexes & triggers).
 create or replace function public.normalize_text(input text)
 returns text
 language sql
@@ -13,7 +13,12 @@ immutable
 strict
 parallel safe
 as $$
-  select trim(regexp_replace(lower(unaccent('unaccent', coalesce(input, ''))), '\s+', ' ', 'g'));
+  select trim(
+    regexp_replace(
+      lower(unaccent('unaccent'::regdictionary, coalesce(input, ''))),
+      '\s+', ' ', 'g'
+    )
+  );
 $$;
 
 create or replace function public.slugify(input text)
@@ -23,10 +28,15 @@ immutable
 strict
 parallel safe
 as $$
-  select trim(both '-' from regexp_replace(
-    regexp_replace(lower(unaccent('unaccent', coalesce(input, ''))), '[^a-z0-9]+', '-', 'g'),
-    '-+', '-', 'g'
-  ));
+  select trim(both '-' from
+    regexp_replace(
+      regexp_replace(
+        lower(unaccent('unaccent'::regdictionary, coalesce(input, ''))),
+        '[^a-z0-9]+', '-', 'g'
+      ),
+      '-+', '-', 'g'
+    )
+  );
 $$;
 
 create or replace function public.set_updated_at()
