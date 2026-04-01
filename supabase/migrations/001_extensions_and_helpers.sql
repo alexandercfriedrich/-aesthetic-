@@ -3,21 +3,28 @@ create extension if not exists unaccent;
 create extension if not exists pg_trgm;
 create extension if not exists citext;
 
+-- unaccent() is only STABLE by default because it uses a named config.
+-- Using the two-argument form unaccent(regdictionary, text) referencing the
+-- dictionary directly is IMMUTABLE and safe for use in generated columns and indexes.
 create or replace function public.normalize_text(input text)
 returns text
 language sql
 immutable
+strict
+parallel safe
 as $$
-  select trim(regexp_replace(lower(unaccent(coalesce(input, ''))), '\s+', ' ', 'g'));
+  select trim(regexp_replace(lower(unaccent('unaccent', coalesce(input, ''))), '\s+', ' ', 'g'));
 $$;
 
 create or replace function public.slugify(input text)
 returns text
 language sql
 immutable
+strict
+parallel safe
 as $$
   select trim(both '-' from regexp_replace(
-    regexp_replace(lower(unaccent(coalesce(input, ''))), '[^a-z0-9]+', '-', 'g'),
+    regexp_replace(lower(unaccent('unaccent', coalesce(input, ''))), '[^a-z0-9]+', '-', 'g'),
     '-+', '-', 'g'
   ));
 $$;
