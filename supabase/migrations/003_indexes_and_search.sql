@@ -11,7 +11,9 @@ create index idx_procedures_search_trgm on public.procedures using gin(search_te
 create index idx_locations_city on public.locations(city);
 create index idx_locations_state on public.locations(state);
 create index idx_locations_postal on public.locations(postal_code);
-create index idx_locations_city_trgm on public.locations using gin(public.normalize_text(city) gin_trgm_ops);
+-- NOTE: functional index with user-defined function not allowed in Postgres.
+-- Instead index city directly with trgm for fuzzy city matching in search_doctors.
+create index idx_locations_city_trgm on public.locations using gin(city gin_trgm_ops);
 
 create index idx_doctor_procedures_doctor on public.doctor_procedures(doctor_id);
 create index idx_doctor_procedures_procedure on public.doctor_procedures(procedure_id);
@@ -45,43 +47,56 @@ as $$
     select id
     from public.procedures
     where p_procedure_slug is null or slug = p_procedure_slug
+  ),
+  norm_query as (
+    select
+      case when p_query is not null and p_query <> ''
+        then public.normalize_text(p_query)
+        else null
+      end as q,
+      case when p_city is not null and p_city <> ''
+        then public.normalize_text(p_city)
+        else null
+      end as c
   )
   select
-    d.id as doctor_id,
+    d.id           as doctor_id,
     d.slug,
     d.public_display_name,
     l.city,
-    s.name_de as specialty,
+    s.name_de      as specialty,
     d.is_verified,
     d.is_premium,
     greatest(
-      coalesce(ts_rank(d.fts, websearch_to_tsquery('simple', public.normalize_text(coalesce(p_query, '')))), 0),
+      coalesce(
+        ts_rank(d.fts, websearch_to_tsquery('simple', coalesce(nq.q, ''))),
+        0
+      ),
       case
-        when p_query is not null and p_query <> '' and d.search_text % public.normalize_text(p_query) then 0.15
+        when nq.q is not null and d.search_text % nq.q then 0.15
         else 0
       end
-    ) as rank
+    )::real as rank
   from public.doctor_profiles d
+  cross join norm_query nq
   left join public.specialties s on s.id = d.primary_specialty_id
   left join lateral (
     select city
-    from public.locations l
-    where l.doctor_id = d.id
-    order by is_primary desc, created_at asc
+    from public.locations loc
+    where loc.doctor_id = d.id
+    order by loc.is_primary desc, loc.created_at asc
     limit 1
   ) l on true
   where d.profile_status = 'published'
     and (
-      p_query is null
-      or p_query = ''
-      or d.fts @@ websearch_to_tsquery('simple', public.normalize_text(p_query))
-      or d.search_text % public.normalize_text(p_query)
+      nq.q is null
+      or d.fts @@ websearch_to_tsquery('simple', nq.q)
+      or d.search_text % nq.q
     )
     and (
-      p_city is null
-      or p_city = ''
-      or public.normalize_text(l.city) % public.normalize_text(p_city)
-      or public.normalize_text(l.city) = public.normalize_text(p_city)
+      nq.c is null
+      or lower(l.city) % nq.c
+      or lower(l.city) = nq.c
     )
     and (
       p_procedure_slug is null
