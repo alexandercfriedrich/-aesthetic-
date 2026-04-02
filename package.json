@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "import:aesthop": "tsx scripts/import-aesthop.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

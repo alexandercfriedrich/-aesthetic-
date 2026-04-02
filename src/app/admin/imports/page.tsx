@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { NewBatchDialog } from "@/components/admin/imports/NewBatchDialog";
+import { AesthOpStatusCard } from "@/components/admin/imports/AesthOpStatusCard";
 
 const STATUS_COLORS: Record<string, string> = {
   created: "bg-slate-100 text-slate-600",
@@ -71,6 +72,11 @@ export default async function AdminImportsPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* ÄsthOp CLI status card */}
+      <div className="mb-6">
+        <AesthOpStatusCard />
       </div>
 
       <div className="rounded-2xl border bg-white overflow-hidden">
