@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { NewBatchDialog } from "@/components/admin/imports/NewBatchDialog";
-import { AesthOpDialog } from "@/components/admin/imports/AesthOpDialog";
 
 const STATUS_COLORS: Record<string, string> = {
   created: "bg-slate-100 text-slate-600",
@@ -45,7 +44,6 @@ export default async function AdminImportsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <AesthOpDialog />
           <NewBatchDialog />
         </div>
       </div>
