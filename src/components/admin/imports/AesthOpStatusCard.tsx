@@ -1,5 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
-import { Terminal } from "lucide-react";
+"use client";
+
+import { useState } from "react";
+import { triggerAesthOpWorkflowAction } from "@/app/admin/imports/actions";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-blue-100 text-blue-700",
@@ -15,20 +17,34 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "Fehler",
 };
 
-async function getLastAesthOpBatch() {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("import_batches")
-    .select("id, source_label, status, total_rows, processed_rows, error_count, created_at")
-    .eq("source_type", "aesthop_scraper")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
-  return data ?? null;
-}
+export type AesthOpLastBatch = {
+  processed_rows: number | null;
+  finished_at: string | null;
+  status: string;
+} | null;
 
-export async function AesthOpStatusCard() {
-  const batch = await getLastAesthOpBatch().catch(() => null);
+export function AesthOpStatusCard({
+  lastBatch,
+}: {
+  lastBatch: AesthOpLastBatch;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ workflowUrl: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleTrigger() {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await triggerAesthOpWorkflowAction();
+      setResult(res);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="rounded-2xl border bg-white overflow-hidden">
@@ -43,101 +59,74 @@ export async function AesthOpStatusCard() {
             confidence_score 100, keine False Positives.
           </p>
         </div>
-        {batch && (
-          <span
-            className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[batch.status] ?? "bg-slate-100 text-slate-600"}`}
+        <div className="flex items-center gap-2 shrink-0">
+          {lastBatch && (
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[lastBatch.status] ?? "bg-slate-100 text-slate-600"}`}
+            >
+              {STATUS_LABELS[lastBatch.status] ?? lastBatch.status}
+            </span>
+          )}
+          <button
+            onClick={handleTrigger}
+            disabled={loading}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
           >
-            {STATUS_LABELS[batch.status] ?? batch.status}
-          </span>
-        )}
+            {loading ? "⏳ Wird gestartet…" : "▶ Scraper starten"}
+          </button>
+        </div>
       </div>
 
-      <div className="px-5 py-4 space-y-4">
+      <div className="px-5 py-4 space-y-3">
         {/* Last batch stats */}
-        {batch ? (
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div className="rounded-xl border px-3 py-2">
-              <div className="text-xl font-bold tabular-nums">
-                {batch.total_rows ?? "—"}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Roh-Einträge
-              </div>
-            </div>
-            <div className="rounded-xl border px-3 py-2">
-              <div className="text-xl font-bold tabular-nums">
-                {batch.processed_rows ?? "—"}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Importiert
-              </div>
-            </div>
-            <div className="rounded-xl border px-3 py-2">
-              <div
-                className={`text-xl font-bold tabular-nums ${(batch.error_count ?? 0) > 0 ? "text-rose-600" : ""}`}
-              >
-                {batch.error_count ?? 0}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Fehler
-              </div>
-            </div>
-          </div>
+        {lastBatch ? (
+          <p className="text-xs text-muted-foreground">
+            Letzter Import:{" "}
+            {lastBatch.finished_at
+              ? new Date(lastBatch.finished_at).toLocaleDateString("de-AT", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "—"}{" "}
+            — {lastBatch.processed_rows ?? 0} Ärzte importiert
+          </p>
         ) : (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Noch kein ÄsthOp-Import durchgeführt.
           </p>
         )}
 
-        {batch && (
-          <p className="text-xs text-muted-foreground">
-            Letzter Import:{" "}
-            {new Date(batch.created_at).toLocaleDateString("de-AT", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
+        {/* Success feedback */}
+        {result && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            ✅ Workflow gestartet!{" "}
+            <a
+              href={result.workflowUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-medium"
+            >
+              → Fortschritt in GitHub Actions ansehen
+            </a>
+          </div>
         )}
 
-        {/* CLI instructions */}
-        <div className="rounded-xl border bg-slate-50 p-3 space-y-2">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
-            <Terminal className="h-3.5 w-3.5" />
-            CLI-Import starten (lokal oder GitHub Actions)
+        {/* Error feedback */}
+        {error && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            ❌ {error}
           </div>
-          <pre className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap break-all">
-            {`# Vollständiger Import (alle Bundesländer × alle Operationen)
-npx tsx scripts/import-aesthop.ts
+        )}
 
-# Nur ein Bundesland
-npx tsx scripts/import-aesthop.ts --bundesland Wien
-
-# Nur bestimmte Operation
-npx tsx scripts/import-aesthop.ts --operation "Brustvergrößerung"
-
-# Ohne Google-Places-Anreicherung
-npx tsx scripts/import-aesthop.ts --no-enrich
-
-# Testlauf ohne DB-Schreibvorgänge
-npx tsx scripts/import-aesthop.ts --dry-run`}
-          </pre>
-          <p className="text-xs text-muted-foreground">
-            Voraussetzungen:{" "}
-            <code className="rounded bg-slate-200 px-1">
-              npx playwright install chromium
-            </code>{" "}
-            und{" "}
-            <code className="rounded bg-slate-200 px-1">
-              SUPABASE_SERVICE_ROLE_KEY
-            </code>{" "}
-            in{" "}
-            <code className="rounded bg-slate-200 px-1">.env.local</code>
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Startet einen GitHub Actions Workflow (~5–10 min). Scrapet alle
+          13 Eingriffsarten × 9 Bundesländer und reichert mit Google Places an.
+        </p>
       </div>
     </div>
   );
 }
+

@@ -114,3 +114,54 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
 
   revalidatePath("/admin/imports");
 }
+
+// ─── ÄsthOp: GitHub Actions workflow trigger ─────────────────────────────────
+
+export async function triggerAesthOpWorkflowAction(params?: {
+  bundeslaender?: string;
+  operations?: string;
+  noEnrich?: boolean;
+}): Promise<{ workflowUrl: string }> {
+  const { supabase } = await assertAdminOrEditor();
+  void supabase; // auth guard used above; supabase not needed further here
+
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      "GITHUB_TOKEN ist nicht gesetzt. Bitte in den Vercel-Umgebungsvariablen konfigurieren.",
+    );
+  }
+
+  const owner = process.env.GITHUB_REPO_OWNER ?? "alexandercfriedrich";
+  const repo = process.env.GITHUB_REPO_NAME ?? "-aesthetic-";
+
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/actions/workflows/import-aesthop.yml/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          bundeslaender: params?.bundeslaender ?? "",
+          operations: params?.operations ?? "",
+          no_enrich: params?.noEnrich ? "true" : "false",
+        },
+      }),
+    },
+  );
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => String(res.status));
+    throw new Error(`GitHub API Fehler: ${res.status} – ${errText}`);
+  }
+
+  return {
+    workflowUrl: `https://github.com/${owner}/${repo}/actions/workflows/import-aesthop.yml`,
+  };
+}
