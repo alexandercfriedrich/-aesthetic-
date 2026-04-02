@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { NewBatchDialog } from "@/components/admin/imports/NewBatchDialog";
 
 const STATUS_COLORS: Record<string, string> = {
   created: "bg-slate-100 text-slate-600",
@@ -43,9 +44,7 @@ export default async function AdminImportsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <span className="rounded-xl border bg-white px-4 py-2 text-sm text-muted-foreground">
-            Neuen Batch anlegen (via API)
-          </span>
+          <NewBatchDialog />
         </div>
       </div>
 
