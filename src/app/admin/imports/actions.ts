@@ -50,8 +50,8 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   if (batchError || !batch)
     throw batchError ?? new Error(`Batch konnte nicht angelegt werden: ${JSON.stringify(batchError)}`);
 
-  // 2. Google Places API aufrufen (Places New – Text Search)
-  const candidates = await fetchGooglePlacesCandidates({
+  // 2. Google Places API aufrufen (Places New – Text Search) + False-Positive-Filter
+  const { places: candidates, rawCount } = await fetchGooglePlacesCandidates({
     query: `${query} ${city}`,
     maxResults,
   });
@@ -99,12 +99,13 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   }
 
   // 4. Batch abschließen
+  // total_rows = rohe Google-Ergebnisse (vor Filter), processed_rows = tatsächlich importiert
   await supabase
     .from("import_batches")
     .update({
       status:
         errorCount > 0 && processed === 0 ? "failed" : "needs_review",
-      total_rows: candidates.length,
+      total_rows: rawCount,
       processed_rows: processed,
       error_count: errorCount,
       finished_at: new Date().toISOString(),

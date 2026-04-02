@@ -1,3 +1,5 @@
+import { isRelevantPlace } from "./places-filter";
+
 type GooglePlace = {
   id: string;
   displayName?: { text: string; languageCode?: string };
@@ -32,7 +34,7 @@ export async function fetchGooglePlacesCandidates({
 }: {
   query: string;
   maxResults: number;
-}): Promise<GooglePlace[]> {
+}): Promise<{ places: GooglePlace[]; rawCount: number }> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) throw new Error("GOOGLE_MAPS_API_KEY is not set");
 
@@ -71,5 +73,10 @@ export async function fetchGooglePlacesCandidates({
     pageToken = data.nextPageToken;
   } while (pageToken && allPlaces.length < maxResults);
 
-  return allPlaces;
+  const filtered = allPlaces.filter(isRelevantPlace);
+  console.log(
+    `[places-import] Fetched: ${allPlaces.length}, after filter: ${filtered.length} (removed ${allPlaces.length - filtered.length} false positives)`,
+  );
+
+  return { places: filtered, rawCount: allPlaces.length };
 }
