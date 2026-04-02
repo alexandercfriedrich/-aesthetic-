@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { fetchGooglePlacesCandidates } from "@/lib/google/places";
 import { geocodeAddress } from "@/lib/google/geocoding";
-import type { Json } from "@/types/database";
+import type { Database, Json } from "@/types/database";
+
+type ImportCandidateInsert =
+  Database["public"]["Tables"]["import_candidates"]["Insert"];
 
 async function assertAdminOrEditor() {
   const supabase = await createClient();
@@ -72,7 +75,7 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   // 3. Kandidaten mit Geocoding anreichern (begrenzte Parallelisierung) + Bulk-Insert
   const CONCURRENCY = 5;
 
-  const candidateRows: Record<string, unknown>[] = [];
+  const candidateRows: ImportCandidateInsert[] = [];
   let errorCount = 0;
 
   // Process candidates in batches of CONCURRENCY
@@ -84,7 +87,7 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
         return {
           batch_id: batch.id,
           entity_kind: entityKind,
-          status: "new",
+          status: "new" as const,
           source_external_id: place.id,
           source_url: place.googleMapsUri,
           raw_json: place as unknown as Json,
