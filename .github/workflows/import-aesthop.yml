@@ -1,0 +1,72 @@
+name: ÄsthOp Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundeslaender:
+        description: 'Kommagetrennte Bundesländer (leer = alle 9)'
+        required: false
+        default: ''
+      operations:
+        description: 'Kommagetrennte Operationen (leer = alle 13)'
+        required: false
+        default: ''
+      no_enrich:
+        description: 'Google-Places-Anreicherung überspringen (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run ÄsthOp import
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          INPUT_BUNDESLAENDER: ${{ inputs.bundeslaender }}
+          INPUT_OPERATIONS: ${{ inputs.operations }}
+          INPUT_NO_ENRICH: ${{ inputs.no_enrich }}
+        run: |
+          ARGS=()
+          # Build --bundesland flags
+          if [ -n "$INPUT_BUNDESLAENDER" ]; then
+            IFS=',' read -ra BL <<< "$INPUT_BUNDESLAENDER"
+            for b in "${BL[@]}"; do
+              trimmed_b="$(echo "$b" | xargs)"
+              if [ -n "$trimmed_b" ]; then
+                ARGS+=(--bundesland "$trimmed_b")
+              fi
+            done
+          fi
+          # Build --operation flags
+          if [ -n "$INPUT_OPERATIONS" ]; then
+            IFS=',' read -ra OPS <<< "$INPUT_OPERATIONS"
+            for o in "${OPS[@]}"; do
+              trimmed_o="$(echo "$o" | xargs)"
+              if [ -n "$trimmed_o" ]; then
+                ARGS+=(--operation "$trimmed_o")
+              fi
+            done
+          fi
+          # Optional: skip enrichment
+          if [ "$INPUT_NO_ENRICH" = "true" ]; then
+            ARGS+=(--no-enrich)
+          fi
+          npx tsx scripts/import-aesthop.ts "${ARGS[@]}"

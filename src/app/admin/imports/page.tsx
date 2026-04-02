@@ -1,5 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { NewBatchDialog } from "@/components/admin/imports/NewBatchDialog";
+import {
+  AesthOpStatusCard,
+  type AesthOpLastBatch,
+} from "@/components/admin/imports/AesthOpStatusCard";
 
 const STATUS_COLORS: Record<string, string> = {
   created: "bg-slate-100 text-slate-600",
@@ -27,11 +32,23 @@ async function getImportBatches() {
   return { data: data ?? [], count: count ?? 0 };
 }
 
+async function getLastAesthOpBatch(): Promise<AesthOpLastBatch> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("import_batches")
+    .select("processed_rows, finished_at, status")
+    .eq("source_type", "aesthop_scraper")
+    .order("finished_at", { ascending: false, nullsFirst: true })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
 export default async function AdminImportsPage() {
-  const { data: batches, count } = await getImportBatches().catch(() => ({
-    data: [],
-    count: 0,
-  }));
+  const [{ data: batches, count }, lastAesthOpBatch] = await Promise.all([
+    getImportBatches().catch(() => ({ data: [], count: 0 })),
+    getLastAesthOpBatch().catch(() => null),
+  ]);
 
   return (
     <div className="p-6">
@@ -43,9 +60,7 @@ export default async function AdminImportsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <span className="rounded-xl border bg-white px-4 py-2 text-sm text-muted-foreground">
-            Neuen Batch anlegen (via API)
-          </span>
+          <NewBatchDialog />
         </div>
       </div>
 
@@ -72,6 +87,11 @@ export default async function AdminImportsPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* ÄsthOp CLI status card */}
+      <div className="mb-6">
+        <AesthOpStatusCard lastBatch={lastAesthOpBatch} />
       </div>
 
       <div className="rounded-2xl border bg-white overflow-hidden">
