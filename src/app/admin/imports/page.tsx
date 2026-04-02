@@ -38,7 +38,7 @@ async function getLastAesthOpBatch(): Promise<AesthOpLastBatch> {
     .from("import_batches")
     .select("processed_rows, finished_at, status")
     .eq("source_type", "aesthop_scraper")
-    .order("finished_at", { ascending: false })
+    .order("finished_at", { ascending: false, nullsFirst: true })
     .limit(1)
     .maybeSingle();
   return data ?? null;

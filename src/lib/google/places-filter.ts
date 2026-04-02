@@ -3,7 +3,11 @@
  * Used to reduce false positives when importing aesthetic medicine professionals.
  */
 
-/** Google place types that are NEVER relevant for aesthetic medicine */
+/**
+ * Google place types that are typically NOT relevant for aesthetic medicine.
+ * A place with a blacklisted type is rejected UNLESS an allowlist type or
+ * allowlist keyword also matches (allowlist takes priority).
+ */
 export const BLACKLIST_TYPES = new Set([
   "dentist",
   "dental_clinic",
@@ -47,9 +51,9 @@ export const BLACKLIST_TYPES = new Set([
 ]);
 
 /**
- * Keywords that MUST appear in displayName or types to be considered relevant.
+ * Keywords that indicate aesthetic relevance when found in the displayName.
  * A candidate passes the allowlist if at least ONE keyword matches.
- * Case-insensitive, checked against the full displayName string.
+ * Case-insensitive, checked against the full displayName.text string.
  */
 export const ALLOWLIST_KEYWORDS = [
   // Deutsch

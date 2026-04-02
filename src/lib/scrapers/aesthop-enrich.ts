@@ -10,6 +10,7 @@
  */
 
 import type { AesthOpDoctor } from "./aesthetische-operationen";
+import { BLACKLIST_TYPES } from "../google/places-filter";
 
 type GooglePlace = {
   id: string;
@@ -39,7 +40,7 @@ const ENRICH_FIELD_MASK = [
 
 /**
  * Searches Google Places for the given ÄsthOp doctor and returns the
- * first result that looks like a match (same city, no blacklisted type).
+ * first result that matches (same city in address, no blacklisted place type).
  * Returns null if no confident match is found or if the API key is missing.
  */
 export async function enrichWithGooglePlaces(
@@ -77,9 +78,13 @@ export async function enrichWithGooglePlaces(
 
     const cityNorm = city?.toLowerCase() ?? "";
     const match =
-      places.find((p) =>
-        p.formattedAddress?.toLowerCase().includes(cityNorm),
-      ) ?? null;
+      places.find((p) => {
+        // Must contain the city in the address
+        if (!p.formattedAddress?.toLowerCase().includes(cityNorm)) return false;
+        // Reject places with blacklisted types
+        if (p.types?.some((t) => BLACKLIST_TYPES.has(t))) return false;
+        return true;
+      }) ?? null;
 
     return match ?? null;
   } catch {

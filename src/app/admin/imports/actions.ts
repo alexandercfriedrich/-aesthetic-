@@ -29,11 +29,24 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   const sourceLabel = formData.get("source_label") as string;
   const query = formData.get("query") as string;
   const city = formData.get("city") as string;
-  const entityKind = (formData.get("entity_kind") as string) ?? "doctor";
-  const maxResults = Math.min(
-    Number(formData.get("max_results") ?? 60),
-    200,
-  );
+
+  // Normalize entity_kind: fall back to default when missing or blank
+  const rawEntityKind = formData.get("entity_kind");
+  const entityKind =
+    typeof rawEntityKind === "string" && rawEntityKind.trim() !== ""
+      ? rawEntityKind
+      : "doctor";
+
+  // Normalize and validate max_results: parseInt, default, and clamp to [1, 200]
+  const rawMaxResults = formData.get("max_results");
+  let maxResults = 60;
+  if (typeof rawMaxResults === "string" && rawMaxResults.trim() !== "") {
+    const parsed = parseInt(rawMaxResults, 10);
+    if (!Number.isNaN(parsed)) {
+      maxResults = parsed;
+    }
+  }
+  maxResults = Math.min(Math.max(maxResults, 1), 200);
 
   // 1. Import-Batch anlegen
   const { data: batch, error: batchError } = await supabase
@@ -56,57 +69,79 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
     maxResults,
   });
 
-  // 3. Kandidaten mit Geocoding anreichern + in DB einfügen
-  let processed = 0;
+  // 3. Kandidaten mit Geocoding anreichern (begrenzte Parallelisierung) + Bulk-Insert
+  const CONCURRENCY = 5;
+
+  const candidateRows: Record<string, unknown>[] = [];
   let errorCount = 0;
 
-  for (const place of candidates) {
-    try {
-      const coords = await geocodeAddress(place.formattedAddress);
+  // Process candidates in batches of CONCURRENCY
+  for (let i = 0; i < candidates.length; i += CONCURRENCY) {
+    const chunk = candidates.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(async (place) => {
+        const coords = await geocodeAddress(place.formattedAddress);
+        return {
+          batch_id: batch.id,
+          entity_kind: entityKind,
+          status: "new",
+          source_external_id: place.id,
+          source_url: place.googleMapsUri,
+          raw_json: place as unknown as Json,
+          normalized_name: place.displayName?.text ?? null,
+          normalized_website_domain: (() => {
+            try {
+              return place.websiteUri
+                ? new URL(place.websiteUri).hostname.replace(/^www\./, "")
+                : null;
+            } catch {
+              return null;
+            }
+          })(),
+          normalized_phone: place.internationalPhoneNumber ?? null,
+          city: city,
+          postal_code: coords?.postalCode ?? null,
+          specialty_text: query,
+          confidence_score: 0,
+        };
+      }),
+    );
 
-      await supabase.from("import_candidates").insert({
-        batch_id: batch.id,
-        entity_kind: entityKind,
-        status: "new",
-        source_external_id: place.id,
-        source_url: place.googleMapsUri,
-        raw_json: place as unknown as Json,
-        normalized_name: place.displayName?.text ?? null,
-        normalized_website_domain: (() => {
-          try {
-            return place.websiteUri
-              ? new URL(place.websiteUri).hostname.replace(/^www\./, "")
-              : null;
-          } catch {
-            return null;
-          }
-        })(),
-        normalized_phone: place.internationalPhoneNumber ?? null,
-        city: city,
-        postal_code: coords?.postalCode ?? null,
-        specialty_text: query,
-        confidence_score: 0,
-      });
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        candidateRows.push(result.value);
+      } else {
+        console.error("[import] Fehler beim Verarbeiten eines Place:", result.reason);
+        errorCount++;
+      }
+    }
+  }
 
-      processed++;
-    } catch (err) {
-      console.error(
-        `[import] Fehler beim Verarbeiten von Place ${place.id}:`,
-        err,
-      );
-      errorCount++;
+  // Bulk-insert all candidate rows at once
+  if (candidateRows.length > 0) {
+    const { error: insertError } = await supabase
+      .from("import_candidates")
+      .insert(candidateRows);
+    if (insertError) {
+      console.error("[import] Bulk-Insert fehlgeschlagen:", insertError);
+      errorCount += candidateRows.length;
     }
   }
 
   // 4. Batch abschließen
   // total_rows = rohe Google-Ergebnisse (vor Filter), processed_rows = tatsächlich importiert
+  const processed = candidateRows.length;
   await supabase
     .from("import_batches")
     .update({
       status:
-        errorCount > 0 && processed === 0 ? "failed" : "needs_review",
+        errorCount > 0 && processed === 0
+          ? "failed"
+          : errorCount === 0
+            ? "completed"
+            : "needs_review",
       total_rows: rawCount,
-      processed_rows: processed,
+      processed_rows: candidateRows.length,
       error_count: errorCount,
       finished_at: new Date().toISOString(),
     })
@@ -132,8 +167,21 @@ export async function triggerAesthOpWorkflowAction(params?: {
     );
   }
 
-  const owner = process.env.GITHUB_REPO_OWNER ?? "alexandercfriedrich";
-  const repo = process.env.GITHUB_REPO_NAME ?? "-aesthetic-";
+  let owner = process.env.GITHUB_REPO_OWNER;
+  let repo = process.env.GITHUB_REPO_NAME;
+  const repository = process.env.GITHUB_REPOSITORY;
+
+  if ((!owner || !repo) && repository) {
+    const [repoOwner, repoName] = repository.split("/");
+    if (!owner) owner = repoOwner;
+    if (!repo) repo = repoName;
+  }
+
+  if (!owner || !repo) {
+    throw new Error(
+      "GitHub-Repository ist nicht korrekt konfiguriert. Bitte GITHUB_REPO_OWNER und GITHUB_REPO_NAME oder GITHUB_REPOSITORY in den Umgebungsvariablen setzen.",
+    );
+  }
 
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/actions/workflows/import-aesthop.yml/dispatches`,

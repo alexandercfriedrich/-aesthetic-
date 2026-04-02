@@ -83,7 +83,7 @@ export function AesthOpStatusCard({
           <p className="text-xs text-muted-foreground">
             Letzter Import:{" "}
             {lastBatch.finished_at
-              ? new Date(lastBatch.finished_at).toLocaleDateString("de-AT", {
+              ? new Date(lastBatch.finished_at).toLocaleString("de-AT", {
                   day: "2-digit",
                   month: "2-digit",
                   year: "numeric",

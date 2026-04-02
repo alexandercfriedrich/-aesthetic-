@@ -354,29 +354,23 @@ export async function scrapeAesthOpDoctors({
   }
 
   // Deduplicate by name + city (same doctor can appear in multiple operation results)
-  const seen = new Set<string>();
-  const deduplicated: AesthOpDoctor[] = [];
+  const dedupMap = new Map<string, AesthOpDoctor>();
   for (const doc of allDoctors) {
     const key = `${doc.name.toLowerCase()}|${(doc.city ?? "").toLowerCase()}`;
-    if (seen.has(key)) {
+    const existing = dedupMap.get(key);
+    if (existing) {
       // Merge additional operations into existing entry
-      const existing = deduplicated.find(
-        (d) =>
-          d.name.toLowerCase() === doc.name.toLowerCase() &&
-          (d.city ?? "").toLowerCase() === (doc.city ?? "").toLowerCase(),
-      );
-      if (existing) {
-        for (const op of doc.operations) {
-          if (!existing.operations.includes(op)) {
-            existing.operations.push(op);
-          }
+      for (const op of doc.operations) {
+        if (!existing.operations.includes(op)) {
+          existing.operations.push(op);
         }
       }
     } else {
-      seen.add(key);
-      deduplicated.push({ ...doc });
+      dedupMap.set(key, { ...doc });
     }
   }
+
+  const deduplicated: AesthOpDoctor[] = Array.from(dedupMap.values());
 
   return { doctors: deduplicated, rawCount };
 }

@@ -40,24 +40,33 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          INPUT_BUNDESLAENDER: ${{ inputs.bundeslaender }}
+          INPUT_OPERATIONS: ${{ inputs.operations }}
+          INPUT_NO_ENRICH: ${{ inputs.no_enrich }}
         run: |
-          ARGS=""
+          ARGS=()
           # Build --bundesland flags
-          if [ -n "${{ inputs.bundeslaender }}" ]; then
-            IFS=',' read -ra BL <<< "${{ inputs.bundeslaender }}"
+          if [ -n "$INPUT_BUNDESLAENDER" ]; then
+            IFS=',' read -ra BL <<< "$INPUT_BUNDESLAENDER"
             for b in "${BL[@]}"; do
-              ARGS="$ARGS --bundesland \"$(echo $b | xargs)\""
+              trimmed_b="$(echo "$b" | xargs)"
+              if [ -n "$trimmed_b" ]; then
+                ARGS+=(--bundesland "$trimmed_b")
+              fi
             done
           fi
           # Build --operation flags
-          if [ -n "${{ inputs.operations }}" ]; then
-            IFS=',' read -ra OPS <<< "${{ inputs.operations }}"
+          if [ -n "$INPUT_OPERATIONS" ]; then
+            IFS=',' read -ra OPS <<< "$INPUT_OPERATIONS"
             for o in "${OPS[@]}"; do
-              ARGS="$ARGS --operation \"$(echo $o | xargs)\""
+              trimmed_o="$(echo "$o" | xargs)"
+              if [ -n "$trimmed_o" ]; then
+                ARGS+=(--operation "$trimmed_o")
+              fi
             done
           fi
           # Optional: skip enrichment
-          if [ "${{ inputs.no_enrich }}" = "true" ]; then
-            ARGS="$ARGS --no-enrich"
+          if [ "$INPUT_NO_ENRICH" = "true" ]; then
+            ARGS+=(--no-enrich)
           fi
-          eval npx tsx scripts/import-aesthop.ts $ARGS
+          npx tsx scripts/import-aesthop.ts "${ARGS[@]}"

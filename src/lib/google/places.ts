@@ -35,6 +35,11 @@ export async function fetchGooglePlacesCandidates({
   query: string;
   maxResults: number;
 }): Promise<{ places: GooglePlace[]; rawCount: number }> {
+  // Validate maxResults to prevent invalid API requests
+  if (!Number.isFinite(maxResults) || maxResults <= 0) {
+    return { places: [], rawCount: 0 };
+  }
+
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) throw new Error("GOOGLE_MAPS_API_KEY is not set");
 
