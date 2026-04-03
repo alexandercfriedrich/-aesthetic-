@@ -554,8 +554,14 @@ export async function triggerAesthOpWorkflowAction(params?: {
     no_enrich: params?.noEnrich ? "true" : "false",
   };
 
-  if (typeof params?.limit === "number" && Number.isFinite(params.limit)) {
+  if (
+    typeof params?.limit === "number" &&
+    Number.isInteger(params.limit) &&
+    params.limit > 0
+  ) {
     workflowInputs.limit = String(params.limit);
+  } else if (typeof params?.limit === "number") {
+    throw new Error("`limit` muss eine positive ganze Zahl sein.");
   }
 
   const res = await fetch(
