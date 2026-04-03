@@ -12,6 +12,7 @@
  *   --operation  <name>   Nur diese Operation scrapen (wiederholbar)
  *   --no-enrich           Google-Places-Anreicherung überspringen
  *   --dry-run             Scrapen, aber nicht in die DB schreiben
+ *   --force               Bereits importierte Ärzte NICHT skippen (re-importieren)
  *
  * WORKFLOW:
  *   1. Script scraped Ärztekammer + schreibt direkt in doctor_profiles mit
@@ -28,6 +29,13 @@
  *   - Erkennt Ordinationen via Keyword (ord/ordination/oard) + Namensabgleich
  *   - Setzt is_primary=true für die Ordination (höchste Priorität)
  *   - Speichert ALLE Standorte in der locations-Tabelle
+ *
+ * IDEMPOTENZ / SKIP-LOGIK:
+ *   Vor dem Importieren wird geprüft, ob ein Arzt mit gleichem
+ *   public_display_name (normalisiert) bereits in der DB existiert.
+ *   Falls ja: Arzt wird geskippt → der Job kann beliebig oft neu gestartet
+ *   werden, ohne Duplikate zu erzeugen.
+ *   Mit --force wird diese Prüfung übersprungen.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -63,6 +71,7 @@ const bundeslaender: string[] = [];
 const operations: string[] = [];
 let enrich = true;
 let dryRun = false;
+let force = false;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--bundesland" && args[i + 1]) {
@@ -73,6 +82,8 @@ for (let i = 0; i < args.length; i++) {
     enrich = false;
   } else if (args[i] === "--dry-run") {
     dryRun = true;
+  } else if (args[i] === "--force") {
+    force = true;
   }
 }
 
@@ -227,7 +238,7 @@ function detectLocationType(
     .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c);
 
   // Ordination: keyword-Match
-  const hasOrdKeyword = /\bord(ination|\.)?\b/.test(n) || n.includes("oard");
+  const hasOrdKeyword = /\bord(ination|\.)?/.test(n) || n.includes("oard");
 
   // Ordination: Namensteile (Nachname zuerst, dann Vorname; mind. 3 Zeichen)
   const lastFragments = normLast.split(/\s+/).filter((w) => w.length >= 3);
@@ -444,6 +455,45 @@ async function checkGoogleApiKey(): Promise<void> {
   }
 }
 
+// ─── Already-imported lookup ─────────────────────────────────────────────────
+
+/**
+ * Lädt alle public_display_name-Werte aus doctor_profiles (normalisiert)
+ * und gibt sie als Set zurück. Wird einmalig vor der Import-Schleife befüllt,
+ * damit keine N+1-Queries entstehen.
+ */
+async function loadExistingDisplayNames(): Promise<Set<string>> {
+  const existing = new Set<string>();
+  let from = 0;
+  const PAGE = 1000;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("doctor_profiles")
+      .select("public_display_name")
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      console.error("[aesthop-import] existing names laden FEHLER:", JSON.stringify(error));
+      break;
+    }
+
+    if (!data || data.length === 0) break;
+
+    for (const row of data) {
+      if (row.public_display_name) {
+        existing.add(normStr(row.public_display_name as string));
+      }
+    }
+
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  console.log(`[aesthop-import] ${existing.size} bereits importierte Ärzte geladen.`);
+  return existing;
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -451,6 +501,7 @@ async function main() {
   if (bundeslaender.length) console.log(`  Bundesländer: ${bundeslaender.join(", ")}`);
   if (operations.length) console.log(`  Operationen: ${operations.join(", ")}`);
   if (dryRun) console.log("  --dry-run: keine DB-Schreibvorgänge");
+  if (force) console.log("  --force: Skip-Logik deaktiviert, alle Ärzte werden (re-)importiert");
 
   if (!dryRun) await checkConnection();
   if (enrich && !dryRun) await checkGoogleApiKey();
@@ -474,7 +525,10 @@ async function main() {
   const procedures = await loadProcedures();
   console.log(`[aesthop-import] ${procedures.length} Procedures geladen.`);
 
-  // 3. Import-Batch anlegen
+  // 3. Bereits importierte Ärzte laden (für Skip-Logik)
+  const existingNames = force ? new Set<string>() : await loadExistingDisplayNames();
+
+  // 4. Import-Batch anlegen
   const label =
     bundeslaender.length === 1
       ? `ÄsthOp – ${bundeslaender[0]}`
@@ -498,25 +552,36 @@ async function main() {
   const batchId = batch.id as string;
   console.log(`[aesthop-import] Batch: ${batchId}`);
 
-  // 4. Ärzte verarbeiten
+  // 5. Ärzte verarbeiten
   let processed = 0;
+  let skipped = 0;
   let errorCount = 0;
 
   for (const doc of doctors) {
     try {
-      // 4a. Namen parsen
+      // 5a. Namen parsen
       const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name ?? "");
+
+      // ── Skip-Check ───────────────────────────────────────────────────────
+      // Prüfe per normalisiertem public_display_name, ob der Arzt bereits in
+      // der DB ist. Dadurch kann der Job jederzeit neu gestartet werden.
+      if (!force && existingNames.has(normStr(displayName))) {
+        console.log(`[aesthop-import] ⏭ Überspringe (bereits importiert): ${displayName}`);
+        skipped++;
+        continue;
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       const baseSlug = slugifyDoctor(lastName ? `${firstName}-${lastName}` : firstName);
       const citySlug = slugifyDoctor(doc.city ?? "");
       const slug = citySlug ? `${baseSlug}-${citySlug}` : baseSlug;
 
-      // 4b. Google Places Anreicherung (optional, nur für Primäradresse)
+      // 5b. Google Places Anreicherung (optional, nur für Primäradresse)
       const enriched = enrich
         ? await enrichWithGooglePlaces(doc).catch(() => null)
         : null;
 
-      // 4c. Specialty
+      // 5c. Specialty
       const { data: specialtyRow } = await supabase
         .from("specialties")
         .select("id")
@@ -526,7 +591,7 @@ async function main() {
 
       const websiteUrl = enriched?.websiteUri ?? doc.website ?? null;
 
-      // 4d. doctor_profiles upsert
+      // 5d. doctor_profiles upsert
       const { data: profileData, error: profileError } = await supabase
         .from("doctor_profiles")
         .upsert(
@@ -568,7 +633,7 @@ async function main() {
 
       const doctorId = profileData.id as string;
 
-      // 4e. ALLE Locations speichern
+      // 5e. ALLE Locations speichern
       //
       // Strategie:
       //   - Alle bisherigen Locations löschen (sauberer Reimport)
@@ -609,8 +674,6 @@ async function main() {
         //         Wir fügen ihn jetzt als institutionName zu AesthOpDoctor hinzu (separate Task).
         //         Übergangsweise: erste Adresse = primary.
 
-        let primarySet = false;
-
         for (let i = 0; i < doc.addresses.length; i++) {
           const addr = doc.addresses[i];
           if (!addr.city) continue;
@@ -640,7 +703,6 @@ async function main() {
 
           // is_primary: erste Adresse ist primary (bis dgName verfügbar)
           const isPrimary = i === 0;
-          if (isPrimary) primarySet = true;
 
           const { error: locationError } = await supabase
             .from("locations")
@@ -712,7 +774,7 @@ async function main() {
         );
       }
 
-      // 4f. doctor_procedures
+      // 5f. doctor_procedures
       const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
       for (const procedureId of procedureIds) {
@@ -730,6 +792,10 @@ async function main() {
         }
       }
 
+      // Nach erfolgreichem Import: lokalen Cache aktualisieren,
+      // damit spätere Einträge im selben Lauf ebenfalls geskippt werden.
+      existingNames.add(normStr(displayName));
+
       processed++;
     } catch (err) {
       console.error(`[aesthop-import] Unerwarteter Fehler bei ${doc.name}:`, err);
@@ -737,11 +803,11 @@ async function main() {
     }
   }
 
-  // 5. Batch abschließen
+  // 6. Batch abschließen
   await supabase
     .from("import_batches")
     .update({
-      status: processed === 0 ? "failed" : "needs_review",
+      status: processed === 0 && skipped === 0 ? "failed" : "needs_review",
       total_rows: rawCount,
       processed_rows: processed,
       error_count: errorCount,
@@ -750,12 +816,12 @@ async function main() {
     .eq("id", batchId);
 
   console.log(
-    `\n[aesthop-import] ✅ Fertig. Importiert: ${processed}, Fehler: ${errorCount}`,
+    `\n[aesthop-import] ✅ Fertig. Importiert: ${processed}, Übersprungen: ${skipped}, Fehler: ${errorCount}`,
   );
   console.log(`[aesthop-import] ℹ  Alle Profile: profile_status='draft'`);
   console.log(`[aesthop-import] ℹ  Zum Publishen: Admin-UI → Drafts → approven.`);
 
-  if (errorCount > 0 && processed === 0) process.exit(1);
+  if (errorCount > 0 && processed === 0 && skipped === 0) process.exit(1);
 }
 
 main().catch((err) => {
