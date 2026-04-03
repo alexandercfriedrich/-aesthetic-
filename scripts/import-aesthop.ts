@@ -885,7 +885,6 @@ async function main() {
     );
 
     importedCount++;
-    existingNames.add(normalizedName);
   }
 
   console.log(
