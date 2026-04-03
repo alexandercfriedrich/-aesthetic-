@@ -13,20 +13,12 @@
  *   --no-enrich           Google-Places-Anreicherung überspringen
  *   --dry-run             Scrapen, aber nicht in die DB schreiben
  *
- * Umgebungsvariablen (aus .env.local):
- *   NEXT_PUBLIC_SUPABASE_URL      Supabase-Projekt-URL
- *   SUPABASE_SERVICE_ROLE_KEY     Service-Role-Key (Bypass RLS)
- *   GOOGLE_MAPS_API_KEY           Für Google-Places-Anreicherung (optional)
- *
  * WORKFLOW:
  *   1. Script scraped Ärztekammer + schreibt direkt in doctor_profiles mit
  *      profile_status = 'draft'
  *   2. Admin reviewed die Draft-Profile im Admin-UI
  *   3. Admin approved → profile_status wird auf 'published' gesetzt
  *   4. Erst dann ist das Profil für Patienten sichtbar
- *
- * WICHTIG: Dieses Script läuft LOKAL oder in einem GitHub-Actions-Workflow,
- * NIEMALS in der Vercel-Serverless-Umgebung (Playwright benötigt Chromium).
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -90,7 +82,6 @@ const supabase = createClient(supabaseUrl, serviceRoleKey);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Slugify: "Dr. Thomas Agnese" → "thomas-agnese" */
 function slugifyDoctor(name: string): string {
   return name
     .toLowerCase()
@@ -101,14 +92,12 @@ function slugifyDoctor(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** Parst "Dr. Thomas Agnese" → { titlePrefix, firstName, lastName } */
 function parseName(fullName: string): {
   titlePrefix: string | null;
   firstName: string;
   lastName: string;
   displayName: string;
 } {
-  // Bekannte Titel-Patterns
   const titlePatterns = [
     /^(Univ\.Prof\.\s*\([^)]+\)\s*Dr\.med\.)\s+/i,
     /^(Ass\.\s*Prof\.\s*\([^)]+\)\s*Dr\.med\.)\s+/i,
@@ -145,7 +134,6 @@ function parseName(fullName: string): {
   };
 }
 
-/** Normalisiert Telefonnummer auf E.164 */
 function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null;
   const digits = phone.replace(/[^\d+]/g, "");
@@ -155,6 +143,31 @@ function normalizePhone(phone: string | null | undefined): string | null {
     return `+43${digits.slice(1)}`;
   }
   return digits || null;
+}
+
+/**
+ * Normalisiert einen String fürs Matching:
+ * - Kleinbuchstaben
+ * - äöüß → ae/oe/ue/ss
+ * - ö in Täto/Tattö wird als 'oo' erkannt via Extra-Alias
+ */
+function normStr(s: string): string {
+  return s
+    .toLowerCase()
+    // Ärztekammer-Sonderfall: Tattöwierungen → tattoewierungen
+    // DB hat: tattoo-entfernung → tattooentfernung
+    // Der oe/oo Unterschied bleibt, daher extra alias unten
+    .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c)
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** Erzeugt alle Alias-Varianten für einen normalisierten String */
+function normAliases(s: string): string[] {
+  const base = normStr(s);
+  // oe <-> oo Variante für 'tattoewierungen' <-> 'tattooentfernung'
+  const oeToOo = base.replace(/oe/g, "oo");
+  const ooToOe = base.replace(/oo/g, "oe");
+  return Array.from(new Set([base, oeToOo, ooToOe]));
 }
 
 // ─── Procedure cache ──────────────────────────────────────────────────────────
@@ -182,9 +195,9 @@ async function loadProcedures(): Promise<ProcedureRow[]> {
 /**
  * Mappt Ärztekammer-Bezeichnungen auf procedures.id
  * Matching-Reihenfolge:
- *  1. aesthop_code direkt (falls ÄsthOp-Nummern geliefert werden)
- *  2. name_de exact match (case-insensitive)
- *  3. name_de contains / synonym match
+ *  1. name_de exact match (nach Normalisierung inkl. oe/oo Aliase)
+ *  2. name_de contains / vice versa (nach Normalisierung)
+ *  3. aesthop_code numeric match
  */
 function matchProcedures(
   operationNames: string[],
@@ -193,43 +206,48 @@ function matchProcedures(
   const ids = new Set<string>();
 
   for (const opName of operationNames) {
-    const norm = opName.toLowerCase().trim();
+    const opAliases = normAliases(opName);
+    let found = false;
 
-    // 1. Exact name_de match
-    const exact = procedures.find(
-      (p) => p.name_de.toLowerCase() === norm,
-    );
-    if (exact) {
-      ids.add(exact.id);
-      continue;
-    }
+    for (const proc of procedures) {
+      const procAliases = normAliases(proc.name_de);
 
-    // 2. Fuzzy: name_de contains the search term or vice versa
-    const fuzzy = procedures.find(
-      (p) =>
-        p.name_de.toLowerCase().includes(norm) ||
-        norm.includes(p.name_de.toLowerCase()),
-    );
-    if (fuzzy) {
-      ids.add(fuzzy.id);
-      continue;
-    }
+      // 1. Exact match (any alias combination)
+      const exactMatch = opAliases.some((oa) => procAliases.some((pa) => oa === pa));
+      if (exactMatch) {
+        ids.add(proc.id);
+        found = true;
+        break;
+      }
 
-    // 3. aesthop_code numeric match (e.g. "02" → Rhinoplastik)
-    const codeMatch = opName.match(/^(\d+)$/);
-    if (codeMatch) {
-      const byCode = procedures.find(
-        (p) => p.aesthop_code === codeMatch[1].padStart(2, "0"),
+      // 2. Contains match (any alias combination)
+      const containsMatch = opAliases.some((oa) =>
+        procAliases.some((pa) => pa.includes(oa) || oa.includes(pa)),
       );
-      if (byCode) {
-        ids.add(byCode.id);
-        continue;
+      if (containsMatch) {
+        ids.add(proc.id);
+        found = true;
+        break;
       }
     }
 
-    console.log(
-      `[aesthop-import]   ⚠ kein Procedure-Match für "${opName}"`,
-    );
+    if (!found) {
+      // 3. aesthop_code match
+      const codeMatch = opName.trim().match(/^(\d+)$/);
+      if (codeMatch) {
+        const byCode = procedures.find(
+          (p) => p.aesthop_code === codeMatch[1].padStart(2, "0"),
+        );
+        if (byCode) {
+          ids.add(byCode.id);
+          found = true;
+        }
+      }
+    }
+
+    if (!found) {
+      console.log(`[aesthop-import]   ⚠ kein Procedure-Match für "${opName}"`);
+    }
   }
 
   return Array.from(ids);
@@ -304,7 +322,6 @@ async function main() {
 
   // 4. Ärzte verarbeiten
   let processed = 0;
-  let skipped = 0;
   let errorCount = 0;
 
   for (const doc of doctors) {
@@ -312,7 +329,6 @@ async function main() {
       // 4a. Namen parsen
       const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name ?? "");
 
-      // Slug aus Namen ableiten (eindeutig durch city-suffix falls nötig)
       const baseSlug = slugifyDoctor(lastName ? `${firstName}-${lastName}` : firstName);
       const citySlug = slugifyDoctor(doc.city ?? "");
       const slug = citySlug ? `${baseSlug}-${citySlug}` : baseSlug;
@@ -330,10 +346,9 @@ async function main() {
         ? await geocodeAddress(addressStr).catch(() => null)
         : null;
 
-      // 4d. Website
       const websiteUrl = enriched?.websiteUri ?? doc.website ?? null;
 
-      // 4e. Specialty matchen (primär: Plastische Chirurgie)
+      // 4d. Specialty
       const { data: specialtyRow } = await supabase
         .from("specialties")
         .select("id")
@@ -341,7 +356,7 @@ async function main() {
         .limit(1)
         .maybeSingle();
 
-      // 4f. doctor_profiles upsert (ON CONFLICT slug → UPDATE)
+      // 4e. doctor_profiles upsert
       // profile_status = 'draft' → Admin muss erst approven!
       const { data: profileData, error: profileError } = await supabase
         .from("doctor_profiles")
@@ -361,17 +376,14 @@ async function main() {
             is_claimed: false,
             is_verified: false,
             verification_level: "none",
-            source_confidence: 1.0, // NUMERIC(5,4): 1.0 = offizielle Ärztekammer-Daten
+            source_confidence: 1.0,
             source_type: "aesthop_scraper",
             source_url:
               doc.sourceUrl ??
               "https://www.aerztekammer.at/aesthetische-operationen-suche",
             last_verified_at: new Date().toISOString(),
           },
-          {
-            onConflict: "slug",
-            ignoreDuplicates: false, // UPDATE wenn schon vorhanden
-          },
+          { onConflict: "slug", ignoreDuplicates: false },
         )
         .select("id")
         .single();
@@ -387,56 +399,51 @@ async function main() {
 
       const doctorId = profileData.id as string;
 
-      // 4g. Location upsert
+      // 4f. Location: DELETE existing primary + INSERT neu
+      // (Statt UPSERT mit fehlerhaftem Partial-Unique-Constraint)
       if (doc.city) {
+        // Vorhandene Primary-Location dieses Arztes löschen
+        await supabase
+          .from("locations")
+          .delete()
+          .eq("doctor_id", doctorId)
+          .eq("is_primary", true);
+
         const streetParts = (doc.address ?? "").trim().split(/\s+/);
-        const houseNumber = streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
+        const houseNumber =
+          streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
         const street = streetParts.join(" ") || null;
 
         const { error: locationError } = await supabase
           .from("locations")
-          .upsert(
-            {
-              doctor_id: doctorId,
-              country_code: "AT",
-              city: doc.city,
-              postal_code: geo?.postalCode ?? doc.postalCode ?? null,
-              street,
-              house_number: houseNumber,
-              latitude: geo?.lat ?? null,
-              longitude: geo?.lng ?? null,
-              is_primary: true,
-            },
-            {
-              onConflict: "doctor_id,is_primary",
-              ignoreDuplicates: false,
-            },
-          );
+          .insert({
+            doctor_id: doctorId,
+            country_code: "AT",
+            city: doc.city,
+            postal_code: geo?.postalCode ?? doc.postalCode ?? null,
+            street,
+            house_number: houseNumber,
+            latitude: geo?.lat ?? null,
+            longitude: geo?.lng ?? null,
+            is_primary: true,
+          });
 
         if (locationError) {
-          // Non-fatal: Arzt angelegt, Location fehlt
           console.warn(
             `[aesthop-import]   ⚠ Location FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
           );
         }
       }
 
-      // 4h. doctor_procedures anlegen
+      // 4g. doctor_procedures
       const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
       for (const procedureId of procedureIds) {
         const { error: dpError } = await supabase
           .from("doctor_procedures")
           .upsert(
-            {
-              doctor_id: doctorId,
-              procedure_id: procedureId,
-              is_active: true,
-            },
-            {
-              onConflict: "doctor_id,procedure_id,clinic_id",
-              ignoreDuplicates: true, // skip wenn schon vorhanden
-            },
+            { doctor_id: doctorId, procedure_id: procedureId, is_active: true },
+            { onConflict: "doctor_id,procedure_id,clinic_id", ignoreDuplicates: true },
           );
 
         if (dpError) {
@@ -471,12 +478,8 @@ async function main() {
   console.log(
     `\n[aesthop-import] ✅ Fertig. Importiert: ${processed}, Fehler: ${errorCount}`,
   );
-  console.log(
-    `[aesthop-import] ℹ  Alle Profile haben profile_status='draft'.`,
-  );
-  console.log(
-    `[aesthop-import] ℹ  Zum Publishen: Admin-UI → Drafts → Profile approven.`,
-  );
+  console.log(`[aesthop-import] ℹ  Alle Profile: profile_status='draft'`);
+  console.log(`[aesthop-import] ℹ  Zum Publishen: Admin-UI → Drafts → approven.`);
 
   if (errorCount > 0 && processed === 0) process.exit(1);
 }
