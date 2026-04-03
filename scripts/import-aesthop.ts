@@ -13,6 +13,7 @@
  *   --no-enrich           Google-Places-Anreicherung überspringen
  *   --dry-run             Scrapen, aber nicht in die DB schreiben
  *   --force               Bereits importierte Ärzte NICHT skippen (re-importieren)
+ *   --limit <n>           Nur die ersten N Ärzte verarbeiten
  *
  * WORKFLOW:
  *   1. Script scraped Ärztekammer + schreibt direkt in doctor_profiles mit
@@ -72,6 +73,7 @@ const operations: string[] = [];
 let enrich = true;
 let dryRun = false;
 let force = false;
+let limitDoctors: number | null = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--bundesland" && args[i + 1]) {
@@ -84,6 +86,9 @@ for (let i = 0; i < args.length; i++) {
     dryRun = true;
   } else if (args[i] === "--force") {
     force = true;
+  } else if (args[i] === "--limit" && args[i + 1]) {
+    const val = parseInt(args[++i], 10);
+    if (!isNaN(val) && val > 0) limitDoctors = val;
   }
 }
 
@@ -471,6 +476,7 @@ async function main() {
   if (operations.length) console.log(`  Operationen: ${operations.join(", ")}`);
   if (dryRun) console.log("  --dry-run: keine DB-Schreibvorgänge");
   if (force) console.log("  --force: Skip-Logik deaktiviert, alle Ärzte werden (re-)importiert");
+  if (limitDoctors !== null) console.log(`  --limit: nur die ersten ${limitDoctors} Ärzte werden verarbeitet`);
 
   if (!dryRun) await checkConnection();
   if (enrich && !dryRun) await checkGoogleApiKey();
@@ -507,12 +513,21 @@ async function main() {
     if (s.name_de) specialtyMap.set(normStr(s.name_de as string), s.id as string);
   }
 
+  // 4b. Limit anwenden (nach dem Scraping, vor der Import-Schleife)
+  let doctorsToProcess = doctors;
+  if (limitDoctors !== null) {
+    doctorsToProcess = doctors.slice(0, limitDoctors);
+    console.log(
+      `[aesthop-import] ⚡ LIMIT aktiv: nur die ersten ${limitDoctors} von ${doctors.length} Ärzten werden verarbeitet`,
+    );
+  }
+
   let importedCount = 0;
   let skippedCount = 0;
   let errorCount = 0;
 
   // 5. Jeden Arzt importieren
-  for (const doc of doctors) {
+  for (const doc of doctorsToProcess) {
     const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name);
 
     // Skip-Logik
@@ -760,15 +775,22 @@ async function main() {
       );
     }
 
-    // 5g. doctor_procedures
+    // 5g. doctor_procedures (soft-delete + upsert)
     const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
+    // Mark all existing procedures for this doctor as inactive
+    await supabase
+      .from("doctor_procedures")
+      .update({ is_active: false })
+      .eq("doctor_id", doctorId);
+
+    // Upsert matched procedures with is_active = true
     for (const procedureId of procedureIds) {
       const { error: procError } = await supabase
         .from("doctor_procedures")
         .upsert(
-          { doctor_id: doctorId, procedure_id: procedureId },
-          { onConflict: "doctor_id,procedure_id", ignoreDuplicates: true },
+          { doctor_id: doctorId, procedure_id: procedureId, is_active: true },
+          { onConflict: "doctor_id,procedure_id", ignoreDuplicates: false },
         );
 
       if (procError) {
@@ -787,7 +809,8 @@ async function main() {
   }
 
   console.log(
-    `\n[aesthop-import] Fertig. Importiert: ${importedCount}, Übersprungen: ${skippedCount}, Fehler: ${errorCount}`,
+    `\n[aesthop-import] Fertig. Importiert: ${importedCount}, Übersprungen: ${skippedCount}, Fehler: ${errorCount}` +
+      (limitDoctors !== null ? ` (Limit war: ${limitDoctors})` : ""),
   );
 }
 

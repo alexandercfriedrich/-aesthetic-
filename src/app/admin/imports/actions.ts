@@ -513,6 +513,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
   bundeslaender?: string;
   operations?: string;
   noEnrich?: boolean;
+  limitDoctors?: number;
 }): Promise<{ workflowUrl: string }> {
   const { supabase } = await assertAdminOrEditor();
   void supabase; // auth guard used above; supabase not needed further here
@@ -540,6 +541,16 @@ export async function triggerAesthOpWorkflowAction(params?: {
     );
   }
 
+  const inputs: Record<string, string> = {
+    bundeslaender: params?.bundeslaender ?? "",
+    operations: params?.operations ?? "",
+    no_enrich: params?.noEnrich ? "true" : "false",
+    limit_doctors:
+      params?.limitDoctors && params.limitDoctors > 0
+        ? String(params.limitDoctors)
+        : "0",
+  };
+
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/actions/workflows/import-aesthop.yml/dispatches`,
     {
@@ -552,11 +563,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
       },
       body: JSON.stringify({
         ref: "main",
-        inputs: {
-          bundeslaender: params?.bundeslaender ?? "",
-          operations: params?.operations ?? "",
-          no_enrich: params?.noEnrich ? "true" : "false",
-        },
+        inputs,
       }),
     },
   );
