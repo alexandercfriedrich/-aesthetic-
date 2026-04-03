@@ -22,6 +22,11 @@
  * 3. opcode filtering: Some opcodes return identical result sets, suggesting
  *    the API ignores the opcode filter for certain operation codes. Dedup
  *    across all operation queries handles this correctly.
+ *
+ * 4. dgName: The raw API field `dgName` contains the institution name
+ *    (e.g. "Ord. AGNESE", "Klinik LANDSTRASSE", "SVS-Gesundheitszentrum").
+ *    This is now exposed in AesthOpDoctor as `institutionName` and
+ *    `institutionNames[]` (one per address) for location type detection.
  */
 
 const API_BASE = "https://www.aerztekammer.at/api/aestop/arzts";
@@ -108,6 +113,18 @@ export const AESTHOP_OPERATIONS = Object.keys(OPERATION_CODES);
 /** All Austrian federal states */
 export const BUNDESLAENDER = Object.keys(BUNDESLAND_CODES);
 
+/**
+ * Eine Arbeitsstätte eines Arztes mit Adresse + Institutionsname.
+ * institutionName = dgName aus der API (z.B. "Ord. AGNESE", "Klinik LANDSTRASSE").
+ */
+export interface AesthOpAddress {
+  address: string | null;
+  postalCode: string | null;
+  city: string | null;
+  /** Originalname der Arbeitsstätte aus der API (dgName), z.B. "Ord. AGNESE" */
+  institutionName: string | null;
+}
+
 export interface AesthOpDoctor {
   /** Full name incl. titles */
   name: string;
@@ -119,28 +136,26 @@ export interface AesthOpDoctor {
   postalCode: string | null;
   /** Primary city */
   city: string | null;
+  /** Primary institution name (dgName of first address) */
+  institutionName: string | null;
   /**
-   * All practice addresses for this doctor.
-   * The API sometimes returns the same doctor with multiple addresses
-   * in a single query; all are collected here.
+   * All practice addresses for this doctor, including institution names.
+   * Used for multi-location import.
    */
-  addresses: Array<{ address: string | null; postalCode: string | null; city: string | null }>;
+  addresses: AesthOpAddress[];
   /** Phone number */
   phone: string | null;
   /** Website URL */
   website: string | null;
   /** Operations this doctor is licensed for */
   operations: string[];
-  /** Primary federal state (first encountered — kept for backwards compatibility) */
+  /** Primary federal state (first encountered) */
   bundesland: string;
-  /**
-   * All federal states this doctor is licensed in.
-   * A doctor can have registrations in multiple Länderkammern.
-   */
+  /** All federal states this doctor is licensed in */
   bundeslaender: string[];
   /** Source page URL for the detail record */
   sourceUrl: string | null;
-  /** Internal Ärztekammer doctor number (unique per Länderkammer, NOT globally) */
+  /** Internal Ärztekammer doctor number (unique per Länderkammer) */
   arztNr: number | null;
   /** OAK ID */
   oakid: string | null;
@@ -182,7 +197,7 @@ interface ApiPage {
   number: number;
 }
 
-// ─── Core fetch logic ─────────────────────────────────────────────────────
+// ─── Core fetch logic ─────────────────────────────────────────────────────────
 
 async function fetchPage(
   opcode: string,
@@ -227,10 +242,11 @@ function mapRawToDoctor(raw: RawArzt, bundesland: string, operation: string): Ae
     .filter(Boolean)
     .join(" ");
 
-  const addr = {
+  const addr: AesthOpAddress = {
     address: raw.strasse?.trim() || null,
     postalCode: raw.plz?.trim() || null,
     city: raw.ort?.trim() || null,
+    institutionName: raw.dgName?.trim() || null,
   };
 
   return {
@@ -239,8 +255,9 @@ function mapRawToDoctor(raw: RawArzt, bundesland: string, operation: string): Ae
     address: addr.address,
     postalCode: addr.postalCode,
     city: addr.city,
+    institutionName: addr.institutionName,
     addresses: [addr],
-    phone: null, // not provided by this API endpoint
+    phone: null,
     website: raw.www?.trim() || null,
     operations: [operation],
     bundesland,
@@ -253,10 +270,7 @@ function mapRawToDoctor(raw: RawArzt, bundesland: string, operation: string): Ae
 
 /**
  * Fetches all doctors for one operation×bundesland combination.
- *
- * Deduplicates INTERNALLY because the API sometimes returns the same doctor
- * multiple times within a single query (e.g. multiple practice addresses).
- * All addresses are preserved in `addresses[]`.
+ * Preserves all addresses including their institution names (dgName).
  */
 async function fetchAllForCombination(
   operation: string,
@@ -284,8 +298,6 @@ async function fetchAllForCombination(
   }
 
   // Deduplicate within this single query result.
-  // Key: arztNr (within same BL it IS unique per doctor, but API returns same
-  // arztNr multiple times when a doctor has multiple practice addresses).
   const seen = new Map<string, AesthOpDoctor>();
   for (const doc of rawDoctors) {
     const key = doc.arztNr
@@ -294,16 +306,17 @@ async function fetchAllForCombination(
 
     const existing = seen.get(key);
     if (existing) {
-      // Collect additional address if different
-      const addrKey = `${doc.address}|${doc.postalCode}|${doc.city}`;
+      // Collect additional address if different (match by institutionName + address)
+      const addrKey = `${doc.institutionName}|${doc.address}|${doc.postalCode}|${doc.city}`;
       const existingAddrKeys = existing.addresses.map(
-        (a) => `${a.address}|${a.postalCode}|${a.city}`,
+        (a) => `${a.institutionName}|${a.address}|${a.postalCode}|${a.city}`,
       );
       if (!existingAddrKeys.includes(addrKey)) {
         existing.addresses.push({
           address: doc.address,
           postalCode: doc.postalCode,
           city: doc.city,
+          institutionName: doc.institutionName,
         });
       }
     } else {
@@ -316,13 +329,6 @@ async function fetchAllForCombination(
 
 // ─── Public API ────────────────────────────────────────────────────────────────────
 
-/**
- * Fetches all ÄsthOp-licensed doctors from aerztekammer.at for the given
- * set of operations and Bundesländer using the real REST API.
- *
- * @param operations Subset of AESTHOP_OPERATIONS (defaults to all 45)
- * @param bundeslaender Subset of BUNDESLAENDER (defaults to all 9)
- */
 export async function scrapeAesthOpDoctors({
   operations = AESTHOP_OPERATIONS,
   bundeslaender = BUNDESLAENDER,
@@ -347,13 +353,6 @@ export async function scrapeAesthOpDoctors({
   }
 
   // Global dedup across all operation×bundesland combinations.
-  //
-  // Key strategy:
-  //   - Has arztNr → `nr:${bundesland}:${arztNr}`  (bundesland-scoped — arztNr is
-  //                                                   only unique within one Länderkammer)
-  //   - No arztNr  → `name:${normalizedName}|${city}` (fallback)
-  //
-  // On merge: union `operations[]`, `bundeslaender[]`, and `addresses[]`.
   const dedupMap = new Map<string, AesthOpDoctor>();
 
   for (const doc of allDoctors) {
@@ -365,34 +364,33 @@ export async function scrapeAesthOpDoctors({
     if (existing) {
       // Merge operations
       for (const op of doc.operations) {
-        if (!existing.operations.includes(op)) {
-          existing.operations.push(op);
-        }
+        if (!existing.operations.includes(op)) existing.operations.push(op);
       }
       // Merge bundeslaender
       for (const bl of doc.bundeslaender) {
-        if (!existing.bundeslaender.includes(bl)) {
-          existing.bundeslaender.push(bl);
-        }
+        if (!existing.bundeslaender.includes(bl)) existing.bundeslaender.push(bl);
       }
-      // Merge addresses
+      // Merge addresses (unique by institutionName + address)
       for (const addr of doc.addresses) {
-        const addrKey = `${addr.address}|${addr.postalCode}|${addr.city}`;
+        const addrKey = `${addr.institutionName}|${addr.address}|${addr.postalCode}|${addr.city}`;
         const existingKeys = existing.addresses.map(
-          (a) => `${a.address}|${a.postalCode}|${a.city}`,
+          (a) => `${a.institutionName}|${a.address}|${a.postalCode}|${a.city}`,
         );
         if (!existingKeys.includes(addrKey)) {
           existing.addresses.push(addr);
         }
       }
     } else {
-      dedupMap.set(key, { ...doc, addresses: [...doc.addresses], bundeslaender: [...doc.bundeslaender] });
+      dedupMap.set(key, {
+        ...doc,
+        addresses: [...doc.addresses],
+        bundeslaender: [...doc.bundeslaender],
+      });
     }
   }
 
   const deduplicated: AesthOpDoctor[] = Array.from(dedupMap.values());
 
-  // Log per-bundesland breakdown
   const blCounts: Record<string, number> = {};
   for (const doc of deduplicated) {
     blCounts[doc.bundesland] = (blCounts[doc.bundesland] ?? 0) + 1;

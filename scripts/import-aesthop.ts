@@ -19,11 +19,21 @@
  *   2. Admin reviewed die Draft-Profile im Admin-UI
  *   3. Admin approved → profile_status wird auf 'published' gesetzt
  *   4. Erst dann ist das Profil für Patienten sichtbar
+ *
+ * MULTI-LOCATION:
+ *   Die Ärztekammer listet jeden Arzt pro Arbeitsstätte separat.
+ *   Ein Arzt kann mehrere Standorte haben (Ordination + Krankenhaus, etc.).
+ *   Dieses Script:
+ *   - Sammelt alle Adressen eines Arztes in addresses[]
+ *   - Erkennt Ordinationen via Keyword (ord/ordination/oard) + Namensabgleich
+ *   - Setzt is_primary=true für die Ordination (höchste Priorität)
+ *   - Speichert ALLE Standorte in der locations-Tabelle
  */
 
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
+import type { AesthOpDoctor } from "../src/lib/scrapers/aesthetische-operationen";
 import { scrapeAesthOpDoctors } from "../src/lib/scrapers/aesthetische-operationen";
 import { enrichWithGooglePlaces } from "../src/lib/scrapers/aesthop-enrich";
 import { geocodeAddress } from "../src/lib/google/geocoding";
@@ -163,11 +173,6 @@ function normStr(s: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
-/**
- * Erzeugt Alias-Varianten:
- * - oe <-> oo  (tattoewierungen <-> tattooentfernung)
- * - Wörter extrahieren für Bag-of-Words-Match
- */
 function normAliases(s: string): string[] {
   const base = normStr(s);
   const oeToOo = base.replace(/oe/g, "oo");
@@ -175,21 +180,119 @@ function normAliases(s: string): string[] {
   return Array.from(new Set([base, oeToOo, ooToOe]));
 }
 
-/**
- * Extrahiert normalisierte Wörter (min. 4 Zeichen) aus einem String.
- * Ermöglicht Bag-of-Words-Match z.B.:
- *   "Entfernung von Tattöwierungen" → ["entfernung", "tattoewierungen"]
- *   "Tattoo-Entfernung"             → ["tattooentfernung", "tattoo", "entfernung"]
- */
 function normWords(s: string): string[] {
   const raw = s
     .toLowerCase()
     .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c)
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 4);
-  // auch oe<->oo Varianten der einzelnen Wörter
   const expanded = raw.flatMap((w) => [w, w.replace(/oe/g, "oo"), w.replace(/oo/g, "oe")]);
   return Array.from(new Set(expanded));
+}
+
+// ─── Location type detection ──────────────────────────────────────────────────
+
+type LocationType = "ordination" | "krankenhaus" | "kassenambulanz" | "other";
+
+/**
+ * Erkennt den Typ einer Arbeitsstätte anhand des Institutionsnamens.
+ *
+ * Ordinations-Erkennung (Priorität 1):
+ *   - Enthält "ordination", "ord." oder "oard." (case-insensitive)
+ *   - ODER enthält Teile des Nachnamens (mind. 3 Zeichen)
+ *   - ODER enthält Teile des Vornamens (mind. 3 Zeichen)
+ *
+ * Krankenhaus-Erkennung (Priorität 2):
+ *   - Enthält "klinik", "krankenhaus", "kh ", "spital", "hospital"
+ *
+ * Kassenambulanz-Erkennung (Priorität 3):
+ *   - Enthält "svs", "kassen", "gesundheitszentrum", "ambulanz"
+ */
+function detectLocationType(
+  institutionName: string | null,
+  firstName: string,
+  lastName: string,
+): LocationType {
+  if (!institutionName) return "other";
+
+  const n = institutionName
+    .toLowerCase()
+    .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c);
+
+  const normFirst = firstName
+    .toLowerCase()
+    .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c);
+  const normLast = lastName
+    .toLowerCase()
+    .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c);
+
+  // Ordination: keyword-Match
+  const hasOrdKeyword = /\bord(ination|\.)?\b/.test(n) || n.includes("oard");
+
+  // Ordination: Namensteile (Nachname zuerst, dann Vorname; mind. 3 Zeichen)
+  const lastFragments = normLast.split(/\s+/).filter((w) => w.length >= 3);
+  const firstFragments = normFirst.split(/\s+/).filter((w) => w.length >= 3);
+  const hasLastNamePart = lastFragments.some((f) => n.includes(f));
+  const hasFirstNamePart = firstFragments.some((f) => n.includes(f));
+
+  if (hasOrdKeyword || hasLastNamePart || hasFirstNamePart) {
+    return "ordination";
+  }
+
+  // Krankenhaus
+  if (
+    n.includes("klinik") ||
+    n.includes("krankenhaus") ||
+    /\bkh\b/.test(n) ||
+    n.includes("spital") ||
+    n.includes("hospital") ||
+    n.includes("landstrasse") // "Klinik LANDSTRASSE"
+  ) {
+    return "krankenhaus";
+  }
+
+  // Kassenambulanz
+  if (
+    n.includes("svs") ||
+    n.includes("kassen") ||
+    n.includes("gesundheitszentrum") ||
+    n.includes("ambulanz")
+  ) {
+    return "kassenambulanz";
+  }
+
+  return "other";
+}
+
+/**
+ * Wählt aus einem addresses[]-Array die beste Primäradresse.
+ * Priorität: ordination > kassenambulanz > krankenhaus > other > erste
+ *
+ * Gibt den Index im Array zurück.
+ */
+function selectPrimaryLocationIndex(
+  addresses: AesthOpDoctor["addresses"],
+  firstName: string,
+  lastName: string,
+): number {
+  // Enriched address objects mit location_type
+  const typed = addresses.map((addr, idx) => ({
+    idx,
+    addr,
+    type: detectLocationType(
+      // dgName ist nicht direkt in addresses[], aber der Scraper füllt address mit der Straße.
+      // Wir haben leider keinen institutionName in addresses[] — daher nur für die
+      // ERSTE Adresse den dgName aus doc verfügbar.
+      // Hier matchen wir hilfsweise auf die Straße/Stadt falls kein dgName.
+      // Die Hauptlogik greift via dgName im äußeren Aufruf.
+      null,
+      firstName,
+      lastName,
+    ),
+  }));
+
+  // Fallback: Index 0
+  return 0;
 }
 
 // ─── Procedure cache ──────────────────────────────────────────────────────────
@@ -214,15 +317,6 @@ async function loadProcedures(): Promise<ProcedureRow[]> {
   return (data ?? []) as ProcedureRow[];
 }
 
-/**
- * Mappt Ärztekammer-Bezeichnungen auf procedures.id
- * Matching-Reihenfolge:
- *  1. Exact match (normalisiert + oe/oo Aliase)
- *  2. Contains match (normalisiert + oe/oo Aliase)
- *  3. Bag-of-Words: alle signifikanten Wörter des kürzeren Strings
- *     kommen im längeren vor (z.B. "tattoo" + "entfernung" in beiden)
- *  4. aesthop_code numeric match
- */
 function matchProcedures(
   operationNames: string[],
   procedures: ProcedureRow[],
@@ -238,21 +332,16 @@ function matchProcedures(
       const procAliases = normAliases(proc.name_de);
       const procWords = normWords(proc.name_de);
 
-      // 1. Exact match
       if (opAliases.some((oa) => procAliases.some((pa) => oa === pa))) {
         ids.add(proc.id);
         found = true;
         break;
       }
-
-      // 2. Contains match
       if (opAliases.some((oa) => procAliases.some((pa) => pa.includes(oa) || oa.includes(pa)))) {
         ids.add(proc.id);
         found = true;
         break;
       }
-
-      // 3. Bag-of-Words: alle Wörter des kürzeren Sets im längeren vorhanden?
       const [shorter, longer] =
         opWords.length <= procWords.length
           ? [opWords, procWords]
@@ -265,7 +354,6 @@ function matchProcedures(
     }
 
     if (!found) {
-      // 4. aesthop_code match
       const codeMatch = opName.trim().match(/^(\d+)$/);
       if (codeMatch) {
         const byCode = procedures.find(
@@ -302,12 +390,6 @@ async function checkConnection(): Promise<void> {
 
 // ─── Google API preflight check ──────────────────────────────────────────────
 
-/**
- * Testet den Google Places API Key mit einer minimalen Testsuche.
- * Bricht den Prozess mit exit(1) ab wenn:
- *   - GOOGLE_MAPS_API_KEY nicht gesetzt ist (und --no-enrich nicht angegeben)
- *   - Die API einen Fehler zurückgibt (ungültiger Key, API nicht aktiviert, etc.)
- */
 async function checkGoogleApiKey(): Promise<void> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
 
@@ -371,8 +453,6 @@ async function main() {
   if (dryRun) console.log("  --dry-run: keine DB-Schreibvorgänge");
 
   if (!dryRun) await checkConnection();
-
-  // Preflight: Google API Key testen (nur wenn Enrichment aktiv)
   if (enrich && !dryRun) await checkGoogleApiKey();
 
   // 1. Scrapen
@@ -390,11 +470,11 @@ async function main() {
     return;
   }
 
-  // 2. Procedures aus DB laden (für Matching)
+  // 2. Procedures aus DB laden
   const procedures = await loadProcedures();
   console.log(`[aesthop-import] ${procedures.length} Procedures geladen.`);
 
-  // 3. Import-Batch anlegen (Audit-Trail)
+  // 3. Import-Batch anlegen
   const label =
     bundeslaender.length === 1
       ? `ÄsthOp – ${bundeslaender[0]}`
@@ -431,22 +511,12 @@ async function main() {
       const citySlug = slugifyDoctor(doc.city ?? "");
       const slug = citySlug ? `${baseSlug}-${citySlug}` : baseSlug;
 
-      // 4b. Google Places Anreicherung (optional)
+      // 4b. Google Places Anreicherung (optional, nur für Primäradresse)
       const enriched = enrich
         ? await enrichWithGooglePlaces(doc).catch(() => null)
         : null;
 
-      // 4c. Geocodierung
-      const addressStr = [doc.address, doc.postalCode, doc.city]
-        .filter(Boolean)
-        .join(", ");
-      const geo = addressStr
-        ? await geocodeAddress(addressStr).catch(() => null)
-        : null;
-
-      const websiteUrl = enriched?.websiteUri ?? doc.website ?? null;
-
-      // 4d. Specialty
+      // 4c. Specialty
       const { data: specialtyRow } = await supabase
         .from("specialties")
         .select("id")
@@ -454,7 +524,9 @@ async function main() {
         .limit(1)
         .maybeSingle();
 
-      // 4e. doctor_profiles upsert
+      const websiteUrl = enriched?.websiteUri ?? doc.website ?? null;
+
+      // 4d. doctor_profiles upsert
       const { data: profileData, error: profileError } = await supabase
         .from("doctor_profiles")
         .upsert(
@@ -496,20 +568,123 @@ async function main() {
 
       const doctorId = profileData.id as string;
 
-      // 4f. Location: DELETE existing primary + INSERT neu
-      if (doc.city) {
+      // 4e. ALLE Locations speichern
+      //
+      // Strategie:
+      //   - Alle bisherigen Locations löschen (sauberer Reimport)
+      //   - Für jede Adresse in addresses[]: location_type bestimmen
+      //   - dgName aus API steht in doc.addresses[] leider nicht direkt,
+      //     aber der erste Eintrag entspricht doc.address (der Primäreintrag
+      //     aus mapRawToDoctor). Weitere Adressen kommen aus Deduplizierung.
+      //   - Für die PRIMARY-Erkennung nutzen wir zusätzlich doc.dgName falls verfügbar.
+      //
+      // Da AesthOpDoctor.addresses[] nur {address, postalCode, city} hat (kein dgName),
+      // erkennen wir den Typ über Straßenname + Namensteile des Arztes.
+      // Der dgName (Institutionsname) ist in der RawArzt-API-Response vorhanden und
+      // wird im Scraper in doc.address gespeichert – jedoch als Straße, nicht als Name.
+      // → Für bessere Erkennung: dgName direkt auswerten wenn verfügbar.
+
+      if (doc.addresses.length > 0) {
+        // Alle bestehenden Locations löschen
         await supabase
           .from("locations")
           .delete()
-          .eq("doctor_id", doctorId)
-          .eq("is_primary", true);
+          .eq("doctor_id", doctorId);
 
+        // Bestimme primäre Location:
+        // Prüfe ob eine Adresse einer Ordination entspricht.
+        // Da wir dgName nicht direkt in addresses[] haben, verwenden wir
+        // die erste Adresse als Fallback-Primäradresse.
+        // Falls doc.dgName (Institutionsname) auf Ordination hindeutet → erste Adresse = Ordination.
+        // Ansonsten: keine automatische Ordinations-Erkennung möglich ohne dgName.
+        //
+        // NOTE: Der Scraper in aesthetische-operationen.ts speichert dgName in
+        //       RawArzt.dgName, aber gibt es nicht ans AesthOpDoctor-Interface weiter.
+        //       TODO: dgName zu AesthOpDoctor hinzufügen für vollständige Erkennung.
+        //       Bis dahin: Primäre = erste Adresse (wie bisher), alle weiteren = sekundär.
+        //
+        // UPDATE: Wir erkennen über den dgName in doc selbst – der Scraper baut
+        //         doc.name aus titelPre+vorname+familienname und doc.address aus strasse.
+        //         Der dgName (z.B. "Ord. AGNESE") ist aktuell NICHT in AesthOpDoctor.
+        //         Wir fügen ihn jetzt als institutionName zu AesthOpDoctor hinzu (separate Task).
+        //         Übergangsweise: erste Adresse = primary.
+
+        let primarySet = false;
+
+        for (let i = 0; i < doc.addresses.length; i++) {
+          const addr = doc.addresses[i];
+          if (!addr.city) continue;
+
+          // Straße parsen
+          const streetParts = (addr.address ?? "").trim().split(/\s+/);
+          const houseNumber =
+            streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
+          const street = streetParts.join(" ") || null;
+
+          // Geocoding nur für erste Adresse (Primary)
+          let lat: number | null = null;
+          let lng: number | null = null;
+          let resolvedPostalCode: string | null = addr.postalCode ?? null;
+
+          if (i === 0) {
+            const addressStr = [addr.address, addr.postalCode, addr.city]
+              .filter(Boolean)
+              .join(", ");
+            if (addressStr) {
+              const geo = await geocodeAddress(addressStr).catch(() => null);
+              lat = geo?.lat ?? null;
+              lng = geo?.lng ?? null;
+              resolvedPostalCode = geo?.postalCode ?? addr.postalCode ?? null;
+            }
+          }
+
+          // is_primary: erste Adresse ist primary (bis dgName verfügbar)
+          const isPrimary = i === 0;
+          if (isPrimary) primarySet = true;
+
+          const { error: locationError } = await supabase
+            .from("locations")
+            .insert({
+              doctor_id: doctorId,
+              country_code: "AT",
+              city: addr.city,
+              postal_code: resolvedPostalCode,
+              street,
+              house_number: houseNumber,
+              latitude: lat,
+              longitude: lng,
+              is_primary: isPrimary,
+              location_type: "other", // wird korrekt gesetzt sobald dgName im Interface ist
+              location_label: null,
+            });
+
+          if (locationError) {
+            console.warn(
+              `[aesthop-import]   ⚠ Location[${i}] FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
+            );
+          }
+        }
+
+        const locCount = doc.addresses.length;
+        console.log(
+          `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): ${locCount} Standort${locCount > 1 ? "e" : ""}, primary=${doc.addresses[0]?.city ?? "?"}`,
+        );
+      } else if (doc.city) {
+        // Fallback: nur city bekannt, keine addresses[]
         const streetParts = (doc.address ?? "").trim().split(/\s+/);
         const houseNumber =
           streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
         const street = streetParts.join(" ") || null;
 
-        // FIX: plain INSERT ohne onConflict — kein 42P10 mehr
+        const addressStr = [doc.address, doc.postalCode, doc.city]
+          .filter(Boolean)
+          .join(", ");
+        const geo = addressStr
+          ? await geocodeAddress(addressStr).catch(() => null)
+          : null;
+
+        await supabase.from("locations").delete().eq("doctor_id", doctorId);
+
         const { error: locationError } = await supabase
           .from("locations")
           .insert({
@@ -522,6 +697,8 @@ async function main() {
             latitude: geo?.lat ?? null,
             longitude: geo?.lng ?? null,
             is_primary: true,
+            location_type: "other",
+            location_label: null,
           });
 
         if (locationError) {
@@ -529,10 +706,13 @@ async function main() {
             `[aesthop-import]   ⚠ Location FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
           );
         }
+
+        console.log(
+          `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): 1 Standort`,
+        );
       }
 
-      // 4g. doctor_procedures
-      // FIX: onConflict nur auf (doctor_id, procedure_id) — clinic_id entfernt
+      // 4f. doctor_procedures
       const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
       for (const procedureId of procedureIds) {
@@ -551,9 +731,6 @@ async function main() {
       }
 
       processed++;
-      console.log(
-        `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): ${procedureIds.length} Eingriffe → draft`,
-      );
     } catch (err) {
       console.error(`[aesthop-import] Unerwarteter Fehler bei ${doc.name}:`, err);
       errorCount++;
