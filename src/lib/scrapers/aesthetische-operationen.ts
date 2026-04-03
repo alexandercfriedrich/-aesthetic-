@@ -12,21 +12,66 @@
 const API_BASE = "https://www.aerztekammer.at/api/aestop/arzts";
 const PAGE_SIZE = 100;
 
-/** Maps human-readable operation name → opcode used by the API */
+/**
+ * Maps human-readable operation name → opcode used by the API.
+ * Source: ÄsthOp-VO 2013 Anlage (all 45 operations, opcodes 01–45).
+ */
 export const OPERATION_CODES: Record<string, string> = {
+  // Gesicht
+  "Kinnkorrektur (Genioplastik)": "01",
   "Nasenkorrektur (Rhinoplastik)": "02",
   "Ohranlegung (Otoplastik)": "03",
   "Lider- und Brauenkorrektur (Blepharoplastik)": "04",
   "Gesichtsstraffung (Facelift, Browlift, Halslift)": "05",
+  // Körperkontour
   "Fettabsaugung (Liposuktion)": "06",
   "Bauchdeckenstraffung (Abdominoplastik)": "07",
+  // Brust
   "Brustvergrößerung": "08",
   "Bruststraffung und -verkleinerung": "09",
   "Brustaufbau und -rekonstruktion": "10",
+  // Extremitäten
   "Oberschenkelstraffung": "11",
   "Oberarmstraffung": "12",
+  // Körper
   "Gesäßstraffung (Gluteoplastik)": "13",
   "Implantate (außer Brustimplantate)": "14",
+  // Injektionsbehandlungen / minimal-invasiv
+  "Injektionsbehandlungen mit Botulinumtoxin": "15",
+  "Injektionsbehandlungen mit Füllmaterialien (Filler)": "16",
+  "Eigenblutbehandlungen (PRP)": "17",
+  "Fadenlift (Fadenbehandlung)": "18",
+  // Haut
+  "Chemisches Peeling (mitteltief, tief)": "19",
+  "Laserbehandlungen der Haut": "20",
+  "Lichtbehandlungen der Haut (IPL)": "21",
+  "Radiofrequenzbehandlungen": "22",
+  "Ultraschallbehandlungen (HIFU)": "23",
+  "Kryolipolyse": "24",
+  "Mesotherapie": "25",
+  "Mikronadeln (Microneedling)": "26",
+  "Permanent Make-up (Tattöwierungen im Gesicht)": "27",
+  // Haare
+  "Haartransplantation": "28",
+  "Laserbehandlungen der Haare": "29",
+  // Intimchirurgie
+  "Intimchirurgie (Labioplastik u.a.)": "30",
+  // Weitere chirurgische Eingriffe
+  "Lidhebung ohne Operation (nicht-chirurgisch)": "31",
+  "Fettgewebstransplantation (Lipofilling)": "32",
+  "Narbenkorrektur": "33",
+  "Afterkorrektur": "34",
+  "Penisverlängerung/-vergrößerung": "35",
+  "Hymenrekonstruktion": "36",
+  "Sterilisation": "37",
+  "Vasektomie": "38",
+  "Ohrläppchenkorrekturen": "39",
+  "Zahnfleischkorrekturen (Gingivoplastik)": "40",
+  "Entfernung von Tattöwierungen": "41",
+  "Entfernung von Besenreisern / Venenbehandlung": "42",
+  "Behandlung von Hyperhidrose": "43",
+  "Behandlung von Alopezie": "44",
+  "Sonstige ästhetische Operationen und Behandlungen": "45",
 };
 
 /** Maps human-readable Bundesland → bundesLands code used by the API */
@@ -81,7 +126,7 @@ export interface ScrapeResult {
   rawCount: number;
 }
 
-// ─── Raw API response types ───────────────────────────────────────────────────
+// ─── Raw API response types ─────────────────────────────────────────────
 
 interface RawArzt {
   bdldCode: string;
@@ -111,7 +156,7 @@ interface ApiPage {
   number: number;
 }
 
-// ─── Core fetch logic ─────────────────────────────────────────────────────────
+// ─── Core fetch logic ─────────────────────────────────────────────────────
 
 async function fetchPage(
   opcode: string,
@@ -200,14 +245,14 @@ async function fetchAllForCombination(
   return doctors;
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Public API ────────────────────────────────────────────────────────────────────
 
 /**
  * Fetches all ÄsthOp-licensed doctors from aerztekammer.at for the given
  * set of operations and Bundesländer using the real REST API.
  *
- * @param operations Subset of AESTHOP_OPERATIONS (defaults to all)
- * @param bundeslaender Subset of BUNDESLAENDER (defaults to all)
+ * @param operations Subset of AESTHOP_OPERATIONS (defaults to all 45)
+ * @param bundeslaender Subset of BUNDESLAENDER (defaults to all 9)
  */
 export async function scrapeAesthOpDoctors({
   operations = AESTHOP_OPERATIONS,
@@ -232,11 +277,12 @@ export async function scrapeAesthOpDoctors({
     }
   }
 
-  // Deduplicate by arztNr (most reliable) or name+city
+  // Deduplicate: prefer arztNr as key (most reliable unique identifier).
+  // Same doctor can appear in multiple operation queries → merge their operations list.
   const dedupMap = new Map<string, AesthOpDoctor>();
   for (const doc of allDoctors) {
     const key = doc.arztNr
-      ? `nr:${doc.arztNr}|${doc.address ?? ""}`
+      ? `nr:${doc.arztNr}`
       : `name:${doc.name.toLowerCase()}|${(doc.city ?? "").toLowerCase()}`;
     const existing = dedupMap.get(key);
     if (existing) {
