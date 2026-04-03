@@ -28,9 +28,10 @@ async function generateUniqueSlug(
   supabase: Awaited<ReturnType<typeof createServiceClient>>,
   base: string,
 ): Promise<string> {
+  const MAX_ATTEMPTS = 1000;
   let slug = base;
   let counter = 2;
-  for (;;) {
+  while (counter <= MAX_ATTEMPTS + 1) {
     const { data } = await supabase
       .from("doctor_profiles")
       .select("id")
@@ -40,6 +41,7 @@ async function generateUniqueSlug(
     slug = `${base}-${counter}`;
     counter++;
   }
+  throw new Error(`Kein eindeutiger Slug für "${base}" nach ${MAX_ATTEMPTS} Versuchen gefunden.`);
 }
 
 function parseName(fullName: string): { first_name: string; last_name: string } {
@@ -169,7 +171,7 @@ export async function publishBatchAction(batchId: string) {
       if (existing.is_claimed) {
         doctorId = existing.id;
       } else {
-        await service
+        const { error: updateErr } = await service
           .from("doctor_profiles")
           .update({
             public_display_name: displayName,
@@ -178,6 +180,10 @@ export async function publishBatchAction(batchId: string) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", existing.id);
+        if (updateErr) {
+          console.error("[publish] doctor_profiles update failed:", updateErr);
+          continue;
+        }
         doctorId = existing.id;
       }
     } else {
@@ -260,7 +266,7 @@ export async function publishBatchAction(batchId: string) {
             doctor_id: doctorId,
             procedure_id: proc.id,
           });
-        if (dpErr && !dpErr.message.includes("duplicate")) {
+        if (dpErr && dpErr.code !== "23505") {
           console.error("[publish] doctor_procedures insert failed:", dpErr);
         }
       }
