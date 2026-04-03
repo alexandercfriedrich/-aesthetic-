@@ -184,6 +184,8 @@ async function main() {
         }
       })();
 
+      // confidence_score: Supabase-Spalte ist NUMERIC(5,4) → Wertebereich 0.0000–9.9999
+      // Offizielle Ärztekammer-Daten = maximale Konfidenz = 1.0
       const { error: insertError } = await supabase
         .from("import_candidates")
         .insert({
@@ -200,7 +202,7 @@ async function main() {
           city: doc.city ?? null,
           postal_code: geo?.postalCode ?? doc.postalCode ?? null,
           specialty_text: doc.specialty ?? doc.operations.join(", "),
-          confidence_score: 100,
+          confidence_score: 1.0, // NUMERIC(5,4): 0.0–1.0 Skala (nicht 0–100)
           ...(extra?.id ? { source_google_place_id: extra.id } : {}),
         });
 
@@ -223,7 +225,7 @@ async function main() {
   const { error: updateError } = await supabase
     .from("import_batches")
     .update({
-      status: processed === 0 ? "failed" : errorCount > 0 ? "needs_review" : "needs_review",
+      status: processed === 0 ? "failed" : "needs_review",
       total_rows: rawCount,
       processed_rows: processed,
       error_count: errorCount,
