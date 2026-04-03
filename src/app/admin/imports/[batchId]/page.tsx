@@ -1,28 +1,10 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { MergeDecisionPanel } from "@/components/admin/imports/MergeDecisionPanel";
+import { BatchDetailClient } from "@/components/admin/imports/BatchDetailClient";
 
 type PageProps = {
   params: Promise<{ batchId: string }>;
-};
-
-const CANDIDATE_STATUS_COLORS: Record<string, string> = {
-  new: "bg-slate-100 text-slate-600",
-  matched: "bg-emerald-100 text-emerald-700",
-  needs_review: "bg-amber-100 text-amber-700",
-  approved: "bg-blue-100 text-blue-700",
-  rejected: "bg-rose-100 text-rose-700",
-  merged: "bg-purple-100 text-purple-700",
-};
-
-const CANDIDATE_STATUS_LABELS: Record<string, string> = {
-  new: "Neu",
-  matched: "Match",
-  needs_review: "Prüfung",
-  approved: "Freigegeben",
-  rejected: "Abgelehnt",
-  merged: "Gemergt",
 };
 
 async function getImportBatch(batchId: string) {
@@ -53,9 +35,6 @@ export default async function ImportBatchDetailPage({ params }: PageProps) {
   if (!result) notFound();
 
   const { batch, candidates } = result;
-
-  const needsReview = candidates.filter((c) => c.status === "needs_review");
-  const firstCandidate = needsReview[0] ?? candidates[0];
 
   return (
     <div className="p-6">
@@ -92,85 +71,8 @@ export default async function ImportBatchDetailPage({ params }: PageProps) {
         ))}
       </div>
 
-      {/* Two-pane layout: candidate list + merge decision panel */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        {/* Candidate list */}
-        <div className="rounded-2xl border bg-white overflow-hidden">
-          <div className="border-b px-5 py-3">
-            <h2 className="text-sm font-semibold">Kandidaten</h2>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="border-b bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">
-                  Stadt
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Score
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {candidates.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-4 py-10 text-center text-muted-foreground"
-                  >
-                    Keine Kandidaten in diesem Batch.
-                  </td>
-                </tr>
-              )}
-              {candidates.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3 font-medium">
-                    {c.normalized_name || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
-                    {c.city || "—"}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {c.confidence_score != null
-                      ? `${Math.round(Number(c.confidence_score) * 100)}%`
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        CANDIDATE_STATUS_COLORS[c.status] ??
-                        "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      {CANDIDATE_STATUS_LABELS[c.status] ?? c.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Merge decision panel — shows first needs_review or first candidate */}
-        {firstCandidate && (
-          <div className="space-y-4">
-            <MergeDecisionPanel
-              candidate={firstCandidate}
-              matchedProfile={null}
-            />
-            <div className="rounded-2xl border bg-amber-50 border-amber-200 px-5 py-4 text-xs text-amber-700">
-              <strong>Merge-Regeln:</strong> Geclaimte Profile niemals
-              automatisch überschreiben. Hochwertigere Quellen schlagen schwache.
-              Medien nie automatisch auf &bdquo;public&quot; setzen.
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Interactive part: toolbar + candidate table + merge panel */}
+      <BatchDetailClient batch={batch} candidates={candidates} />
     </div>
   );
 }

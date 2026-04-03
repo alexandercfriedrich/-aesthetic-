@@ -1,27 +1,49 @@
+"use client";
+
+import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import {
+  approveCandidateAction,
+  rejectCandidateAction,
+} from "@/app/admin/imports/actions";
 
 type MergeDecisionPanelProps = {
   candidate: Record<string, unknown>;
   matchedProfile?: Record<string, unknown> | null;
-  onNewProfile?: () => void;
-  onMerge?: () => void;
-  onIgnore?: () => void;
 };
 
 export function MergeDecisionPanel({
   candidate,
   matchedProfile,
-  onNewProfile,
-  onMerge,
-  onIgnore,
 }: MergeDecisionPanelProps) {
+  const [isPending, startTransition] = useTransition();
+
   if (!candidate) return null;
 
+  const candidateId = candidate.id as string;
   const confidence = typeof candidate.confidence_score === "number" ? candidate.confidence_score : null;
   const confidencePct = confidence != null ? Math.round(confidence * 100) : null;
+
+  function handleNewProfile() {
+    startTransition(async () => {
+      await approveCandidateAction(candidateId);
+    });
+  }
+
+  function handleMerge() {
+    startTransition(async () => {
+      await approveCandidateAction(candidateId);
+    });
+  }
+
+  function handleIgnore() {
+    startTransition(async () => {
+      await rejectCandidateAction(candidateId);
+    });
+  }
 
   return (
     <div className="space-y-5 rounded-2xl border bg-white p-5">
@@ -91,18 +113,18 @@ export function MergeDecisionPanel({
 
       {/* Actions */}
       <div className="flex flex-wrap gap-3">
-        <Button variant="default" size="sm" onClick={onNewProfile}>
-          Neues Profil anlegen
+        <Button variant="default" size="sm" disabled={isPending} onClick={handleNewProfile}>
+          {isPending ? "…" : "Neues Profil anlegen"}
         </Button>
         <Button
           variant="outline"
           size="sm"
-          disabled={!matchedProfile}
-          onClick={onMerge}
+          disabled={isPending || !matchedProfile}
+          onClick={handleMerge}
         >
           In bestehendes Profil mergen
         </Button>
-        <Button variant="ghost" size="sm" onClick={onIgnore}>
+        <Button variant="ghost" size="sm" disabled={isPending} onClick={handleIgnore}>
           Ignorieren
         </Button>
       </div>
