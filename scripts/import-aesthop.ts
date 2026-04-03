@@ -300,6 +300,68 @@ async function checkConnection(): Promise<void> {
   console.log("[aesthop-import] Supabase-Verbindung OK.");
 }
 
+// ─── Google API preflight check ──────────────────────────────────────────────
+
+/**
+ * Testet den Google Places API Key mit einer minimalen Testsuche.
+ * Bricht den Prozess mit exit(1) ab wenn:
+ *   - GOOGLE_MAPS_API_KEY nicht gesetzt ist (und --no-enrich nicht angegeben)
+ *   - Die API einen Fehler zurückgibt (ungültiger Key, API nicht aktiviert, etc.)
+ */
+async function checkGoogleApiKey(): Promise<void> {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+  if (!apiKey) {
+    console.error(
+      "[aesthop-import] FEHLER: GOOGLE_MAPS_API_KEY ist nicht gesetzt.\n" +
+      "  → GitHub Secret 'GOOGLE_MAPS_API_KEY' hinterlegen oder --no-enrich verwenden.",
+    );
+    process.exit(1);
+  }
+
+  console.log("[aesthop-import] Google API Key gefunden – teste Verbindung…");
+
+  try {
+    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.id,places.displayName",
+      },
+      body: JSON.stringify({
+        textQuery: "Arzt Wien",
+        languageCode: "de",
+        regionCode: "AT",
+        pageSize: 1,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(
+        `[aesthop-import] FEHLER: Google Places API antwortet mit HTTP ${res.status}.\n` +
+        `  Details: ${body}`,
+      );
+      process.exit(1);
+    }
+
+    const data = (await res.json()) as { places?: unknown[]; error?: { message: string } };
+
+    if (data.error) {
+      console.error(
+        `[aesthop-import] FEHLER: Google Places API Fehler: ${data.error.message}`,
+      );
+      process.exit(1);
+    }
+
+    console.log("[aesthop-import] Google Places API OK ✓");
+  } catch (err) {
+    console.error("[aesthop-import] FEHLER: Google Places API nicht erreichbar:", err);
+    process.exit(1);
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -309,6 +371,9 @@ async function main() {
   if (dryRun) console.log("  --dry-run: keine DB-Schreibvorgänge");
 
   if (!dryRun) await checkConnection();
+
+  // Preflight: Google API Key testen (nur wenn Enrichment aktiv)
+  if (enrich && !dryRun) await checkGoogleApiKey();
 
   // 1. Scrapen
   const { doctors, rawCount } = await scrapeAesthOpDoctors({
