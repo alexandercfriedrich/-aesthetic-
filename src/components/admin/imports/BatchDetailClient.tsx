@@ -96,6 +96,7 @@ export function BatchDetailClient({ batch, candidates }: Props) {
     startTransition(async () => {
       try {
         await approveCandidateAction(candidateId);
+        router.refresh();
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Fehler beim Freigeben",
@@ -112,6 +113,7 @@ export function BatchDetailClient({ batch, candidates }: Props) {
     startTransition(async () => {
       try {
         await rejectCandidateAction(candidateId);
+        router.refresh();
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Fehler beim Ablehnen",
