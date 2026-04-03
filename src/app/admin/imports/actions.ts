@@ -513,6 +513,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
   bundeslaender?: string;
   operations?: string;
   noEnrich?: boolean;
+  limit?: number;
 }): Promise<{ workflowUrl: string }> {
   const { supabase } = await assertAdminOrEditor();
   void supabase; // auth guard used above; supabase not needed further here
@@ -556,6 +557,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
           bundeslaender: params?.bundeslaender ?? "",
           operations: params?.operations ?? "",
           no_enrich: params?.noEnrich ? "true" : "false",
+          limit: params?.limit ? String(params.limit) : "",
         },
       }),
     },

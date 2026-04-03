@@ -13,6 +13,7 @@
  *   --no-enrich           Google-Places-Anreicherung überspringen
  *   --dry-run             Scrapen, aber nicht in die DB schreiben
  *   --force               Bereits importierte Ärzte NICHT skippen (re-importieren)
+ *   --limit <n>           Nur die ersten N Ärzte importieren (Test-Modus)
  *
  * WORKFLOW:
  *   1. Script scraped Ärztekammer + schreibt direkt in doctor_profiles mit
@@ -43,7 +44,7 @@ import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
 import type { AesthOpDoctor } from "../src/lib/scrapers/aesthetische-operationen";
 import { scrapeAesthOpDoctors } from "../src/lib/scrapers/aesthetische-operationen";
-import { enrichWithGooglePlaces } from "../src/lib/scrapers/aesthop-enrich";
+import { enrichWithGooglePlaces, type EnrichResult } from "../src/lib/scrapers/aesthop-enrich";
 import { geocodeAddress } from "../src/lib/google/geocoding";
 
 // ─── Load .env.local ────────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ const operations: string[] = [];
 let enrich = true;
 let dryRun = false;
 let force = false;
+let limitDoctors: number | null = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--bundesland" && args[i + 1]) {
@@ -84,6 +86,8 @@ for (let i = 0; i < args.length; i++) {
     dryRun = true;
   } else if (args[i] === "--force") {
     force = true;
+  } else if (args[i] === "--limit" && args[i + 1]) {
+    limitDoctors = parseInt(args[++i], 10);
   }
 }
 
@@ -469,6 +473,7 @@ async function main() {
   console.log("[aesthop-import] Starte Scraping…");
   if (bundeslaender.length) console.log(`  Bundesländer: ${bundeslaender.join(", ")}`);
   if (operations.length) console.log(`  Operationen: ${operations.join(", ")}`);
+  if (limitDoctors !== null) console.log(`  --limit: nur die ersten ${limitDoctors} Ärzte`);
   if (dryRun) console.log("  --dry-run: keine DB-Schreibvorgänge");
   if (force) console.log("  --force: Skip-Logik deaktiviert, alle Ärzte werden (re-)importiert");
 
@@ -489,6 +494,16 @@ async function main() {
     console.log("[aesthop-import] Dry-run abgeschlossen.");
     return;
   }
+
+  // Limit anwenden (Test-Modus)
+  const doctorsToProcess = limitDoctors !== null
+    ? doctors.slice(0, limitDoctors)
+    : doctors;
+
+  console.log(
+    `[aesthop-import] Verarbeite ${doctorsToProcess.length} von ${doctors.length} Ärzten` +
+    (limitDoctors !== null ? ` (TEST-MODUS: limit=${limitDoctors})` : ""),
+  );
 
   // 2. Procedures aus DB laden
   const procedures = await loadProcedures();
@@ -512,7 +527,7 @@ async function main() {
   let errorCount = 0;
 
   // 5. Jeden Arzt importieren
-  for (const doc of doctors) {
+  for (const doc of doctorsToProcess) {
     const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name);
 
     // Skip-Logik
@@ -526,7 +541,7 @@ async function main() {
     console.log(`[aesthop-import] → Importiere: ${displayName}`);
 
     // 5a. Google Places Anreicherung
-    let enriched: Awaited<ReturnType<typeof enrichWithGooglePlaces>> | null = null;
+    let enriched: EnrichResult | null = null;
     if (enrich) {
       const addressStr = [doc.address, doc.postalCode, doc.city].filter(Boolean).join(", ");
       enriched = await enrichWithGooglePlaces(
@@ -534,10 +549,25 @@ async function main() {
         addressStr || doc.city || "",
       ).catch((err) => {
         console.warn(`[aesthop-import]   ⚠ Google Places Fehler für ${displayName}:`, err);
-        return null;
+        return {
+          id: "",
+          _matchStatus: "error" as const,
+          _candidateCount: 0,
+          _notes: err instanceof Error ? err.message : "Unbekannter Fehler",
+        };
       });
       if (enriched) {
-        console.log(`[aesthop-import]   ✓ Google Places: ${enriched.formattedAddress ?? "n/a"}`);
+        const statusIcon: Record<string, string> = {
+          matched_strict: "✅",
+          no_results: "⚪",
+          ambiguous: "⚠️",
+          error: "❌",
+        };
+        console.log(
+          `[aesthop-import]   ${statusIcon[enriched._matchStatus] ?? "?"} Google: ${enriched._matchStatus}` +
+          (enriched._candidateCount > 1 ? ` (${enriched._candidateCount} Kandidaten)` : "") +
+          (enriched._notes ? ` → ${enriched._notes}` : ""),
+        );
       }
     }
 
@@ -569,13 +599,13 @@ async function main() {
     const MAX_SLUG_TRIES = 10;
 
     while (slugSuffix <= MAX_SLUG_TRIES) {
-      const { data: existing } = await supabase
+      const { data: slugCheck } = await supabase
         .from("doctor_profiles")
         .select("id")
         .eq("slug", slug)
         .maybeSingle();
 
-      if (!existing) break;
+      if (!slugCheck) break;
       slug = `${baseSlug}-${++slugSuffix}`;
     }
 
@@ -585,7 +615,23 @@ async function main() {
       continue;
     }
 
-    // 5e. doctor_profiles upsert
+    // 5e. Guard: prüfen ob Profil bereits existiert (für profile_status + claimed/verified Schutz)
+    const { data: existing } = await supabase
+      .from("doctor_profiles")
+      .select("id, profile_status, is_claimed, is_verified")
+      .eq("slug", slug)
+      .maybeSingle();
+
+    const profileStatus = existing?.profile_status === "published"
+      ? "published"
+      : "draft";
+
+    // Google match status berechnen
+    const googleStatus = enriched?._matchStatus ?? (enrich ? "error" : "pending");
+    const googleCandidateCount = enriched?._candidateCount ?? 0;
+    const googleNotes = enriched?._notes ?? null;
+
+    // 5f. doctor_profiles upsert
     const { data: profileData, error: profileError } = await supabase
       .from("doctor_profiles")
       .upsert(
@@ -600,16 +646,19 @@ async function main() {
           phone_public: normalizePhone(
             enriched?.internationalPhoneNumber ?? doc.phone,
           ),
-          profile_status: "draft",
-          is_claimed: false,
-          is_verified: false,
-          verification_level: "none",
+          profile_status: profileStatus,
+          // is_claimed, is_verified, verification_level: nur setzen wenn noch nicht vorhanden
+          ...(existing ? {} : { is_claimed: false, is_verified: false, verification_level: "none" }),
           source_confidence: 1.0,
           source_type: "aesthop_scraper",
           source_url:
             doc.sourceUrl ??
             "https://www.aerztekammer.at/aesthetische-operationen-suche",
           last_verified_at: new Date().toISOString(),
+          google_match_status: googleStatus,
+          google_match_candidate_count: googleCandidateCount,
+          google_match_last_checked_at: new Date().toISOString(),
+          google_match_notes: googleNotes,
         },
         { onConflict: "slug", ignoreDuplicates: false },
       )
@@ -627,7 +676,7 @@ async function main() {
 
     const doctorId = profileData.id as string;
 
-    // 5f. ALLE Locations speichern
+    // 5g. ALLE Locations speichern
     //
     // Strategie:
     //   - Alle bisherigen Locations löschen (sauberer Reimport)
@@ -760,7 +809,7 @@ async function main() {
       );
     }
 
-    // 5g. doctor_procedures
+    // 5h. doctor_procedures
     const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
     for (const procedureId of procedureIds) {
