@@ -234,18 +234,35 @@ export async function publishBatchAction(batchId: string) {
       const opName = typeof op === "string" ? op : null;
       if (!opName) continue;
 
-      const { data: proc } = await service
+      // Use separate parameterized queries instead of string interpolation
+      // to avoid potential filter-injection via raw_json content.
+      let proc: { id: string } | null = null;
+      const { data: bySlug } = await service
         .from("procedures")
         .select("id")
-        .or(`slug.eq.${opName},name_de.ilike.${opName}`)
+        .eq("slug", opName)
         .maybeSingle();
+      if (bySlug) {
+        proc = bySlug;
+      } else {
+        const { data: byName } = await service
+          .from("procedures")
+          .select("id")
+          .ilike("name_de", opName)
+          .maybeSingle();
+        proc = byName ?? null;
+      }
 
       if (proc) {
-        await service.from("doctor_procedures").insert({
-          doctor_id: doctorId,
-          procedure_id: proc.id,
-        });
-        // ignore duplicate errors — no on-conflict in Supabase client for nulls
+        const { error: dpErr } = await service
+          .from("doctor_procedures")
+          .insert({
+            doctor_id: doctorId,
+            procedure_id: proc.id,
+          });
+        if (dpErr && !dpErr.message.includes("duplicate")) {
+          console.error("[publish] doctor_procedures insert failed:", dpErr);
+        }
       }
     }
 
