@@ -29,7 +29,7 @@ import { scrapeAesthOpDoctors } from "../src/lib/scrapers/aesthetische-operation
 import { enrichWithGooglePlaces } from "../src/lib/scrapers/aesthop-enrich";
 import { geocodeAddress } from "../src/lib/google/geocoding";
 
-// ─── Load .env.local for local development ────────────────────────────────────
+// ─── Load .env.local for local development ─────────────────────────────────────────
 
 const envPath = resolve(process.cwd(), ".env.local");
 if (existsSync(envPath)) {
@@ -47,7 +47,7 @@ if (existsSync(envPath)) {
   }
 }
 
-// ─── Parse CLI flags ──────────────────────────────────────────────────────────
+// ─── Parse CLI flags ─────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 const bundeslaender: string[] = [];
@@ -67,7 +67,7 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-// ─── Supabase client ──────────────────────────────────────────────────────────
+// ─── Supabase client ───────────────────────────────────────────────────────────────
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -82,7 +82,24 @@ if (!supabaseUrl || !serviceRoleKey) {
 
 const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Connectivity check ──────────────────────────────────────────────────────────
+
+async function checkSupabaseConnection(): Promise<void> {
+  console.log("[aesthop-import] Prüfe Supabase-Verbindung...");
+  const { error } = await supabase
+    .from("import_batches")
+    .select("id")
+    .limit(1);
+  if (error) {
+    console.error("[aesthop-import] Supabase-Verbindung FEHLGESCHLAGEN:", JSON.stringify(error));
+    console.error("  URL:", supabaseUrl);
+    console.error("  Tipp: Service Role Key prüfen (nicht der anon key!)");
+    process.exit(1);
+  }
+  console.log("[aesthop-import] Supabase-Verbindung OK.");
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log("[aesthop-import] Starte Scraping…");
@@ -91,6 +108,11 @@ async function main() {
   if (operations.length)
     console.log(`  Operationen: ${operations.join(", ")}`);
   if (dryRun) console.log("  --dry-run aktiv: keine DB-Schreibvorgänge");
+
+  // 0. Verbindung prüfen
+  if (!dryRun) {
+    await checkSupabaseConnection();
+  }
 
   // 1. Batch anlegen
   let batchId: string | null = null;
@@ -113,7 +135,7 @@ async function main() {
       .single();
 
     if (error || !batch) {
-      console.error("[aesthop-import] Batch konnte nicht angelegt werden:", error);
+      console.error("[aesthop-import] Batch konnte nicht angelegt werden:", JSON.stringify(error));
       process.exit(1);
     }
     batchId = batch.id as string;
@@ -127,7 +149,7 @@ async function main() {
   });
 
   console.log(
-    `[aesthop-import] Gescraped: ${rawCount} Roheinträge → ${doctors.length} deduplizierte Ärzte`,
+    `[aesthop-import] Gescraped: ${rawCount} Roheintrage → ${doctors.length} deduplizierte Ärzte`,
   );
 
   if (dryRun) {
@@ -153,43 +175,55 @@ async function main() {
       const geo = coords.status === "fulfilled" ? coords.value : null;
       const extra = enriched.status === "fulfilled" ? enriched.value : null;
 
-      await supabase.from("import_candidates").insert({
-        batch_id: batchId,
-        entity_kind: "doctor",
-        status: "new",
-        source_external_id: doc.sourceUrl ?? null,
-        source_url:
-          doc.sourceUrl ?? "https://www.aerztekammer.at/aesthetische-operationen-suche",
-        raw_json: doc as unknown as Record<string, unknown>,
-        normalized_name: doc.name || null,
-        normalized_website_domain: (() => {
-          const site = extra?.websiteUri ?? doc.website;
-          try {
-            return site ? new URL(site).hostname.replace(/^www\./, "") : null;
-          } catch {
-            return null;
-          }
-        })(),
-        normalized_phone: extra?.internationalPhoneNumber ?? doc.phone ?? null,
-        city: doc.city ?? null,
-        postal_code: geo?.postalCode ?? doc.postalCode ?? null,
-        specialty_text: doc.specialty ?? doc.operations.join(", "),
-        confidence_score: 100, // offizielle Ärztekammer-Daten — keine False Positives
-        ...(extra?.id ? { source_google_place_id: extra.id } : {}),
-      });
+      const websiteDomain = (() => {
+        const site = extra?.websiteUri ?? doc.website;
+        try {
+          return site ? new URL(site).hostname.replace(/^www\./, "") : null;
+        } catch {
+          return null;
+        }
+      })();
 
-      processed++;
+      const { error: insertError } = await supabase
+        .from("import_candidates")
+        .insert({
+          batch_id: batchId,
+          entity_kind: "doctor",
+          status: "new",
+          source_external_id: doc.sourceUrl ?? null,
+          source_url:
+            doc.sourceUrl ?? "https://www.aerztekammer.at/aesthetische-operationen-suche",
+          raw_json: doc as unknown as Record<string, unknown>,
+          normalized_name: doc.name || null,
+          normalized_website_domain: websiteDomain,
+          normalized_phone: extra?.internationalPhoneNumber ?? doc.phone ?? null,
+          city: doc.city ?? null,
+          postal_code: geo?.postalCode ?? doc.postalCode ?? null,
+          specialty_text: doc.specialty ?? doc.operations.join(", "),
+          confidence_score: 100,
+          ...(extra?.id ? { source_google_place_id: extra.id } : {}),
+        });
+
+      if (insertError) {
+        console.error(
+          `[aesthop-import] INSERT FEHLER für ${doc.name} (${doc.city}):`,
+          JSON.stringify(insertError),
+        );
+        errorCount++;
+      } else {
+        processed++;
+      }
     } catch (err) {
-      console.error(`[aesthop-import] Fehler bei ${doc.name}:`, err);
+      console.error(`[aesthop-import] Unerwarteter Fehler bei ${doc.name}:`, err);
       errorCount++;
     }
   }
 
   // 4. Batch abschließen
-  await supabase
+  const { error: updateError } = await supabase
     .from("import_batches")
     .update({
-      status: errorCount > 0 && processed === 0 ? "failed" : "needs_review",
+      status: processed === 0 ? "failed" : errorCount > 0 ? "needs_review" : "needs_review",
       total_rows: rawCount,
       processed_rows: processed,
       error_count: errorCount,
@@ -197,9 +231,17 @@ async function main() {
     })
     .eq("id", batchId);
 
+  if (updateError) {
+    console.error("[aesthop-import] Batch-Update FEHLER:", JSON.stringify(updateError));
+  }
+
   console.log(
     `[aesthop-import] Fertig. Importiert: ${processed}, Fehler: ${errorCount}`,
   );
+
+  if (errorCount > 0 && processed === 0) {
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
