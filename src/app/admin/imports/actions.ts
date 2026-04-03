@@ -541,8 +541,8 @@ export async function triggerAesthOpWorkflowAction(params?: {
     );
   }
 
-  // In Preview-/PR-Deployments muss auf den aktuellen Branch dispatcht werden,
-  // damit neue workflow_dispatch-Inputs (z. B. "limit") bereits verfügbar sind.
+  // In preview/PR deployments, dispatch against the current branch so newly
+  // added workflow_dispatch inputs (for example "limit") are already available.
   const dispatchRef =
     process.env.VERCEL_GIT_COMMIT_REF ??
     process.env.GITHUB_REF_NAME ??
