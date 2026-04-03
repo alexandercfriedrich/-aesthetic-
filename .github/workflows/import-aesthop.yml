@@ -19,7 +19,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -32,8 +32,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Kein Playwright/Chromium nötig — Scraper nutzt nur fetch() gegen die
-      # Ärztekammer REST-API (https://www.aerztekammer.at/api/aestop/arzts)
+      # Keepalive: verhindert, dass GitHub Actions den Job als "hängend"
+      # einstuft und abbricht. Gibt alle 4 Minuten einen Heartbeat aus,
+      # solange der Import läuft.
+      - name: Start keepalive
+        run: |
+          while true; do
+            echo "[keepalive] $(date '+%H:%M:%S') — Import läuft noch..."
+            sleep 240
+          done &
+          echo "KEEPALIVE_PID=$!" >> "$GITHUB_ENV"
 
       - name: Run ÄsthOp import
         env:
@@ -70,3 +78,10 @@ jobs:
             ARGS+=(--no-enrich)
           fi
           npx tsx scripts/import-aesthop.ts "${ARGS[@]}"
+
+      - name: Stop keepalive
+        if: always()
+        run: |
+          if [ -n "$KEEPALIVE_PID" ]; then
+            kill "$KEEPALIVE_PID" 2>/dev/null || true
+          fi
