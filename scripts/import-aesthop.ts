@@ -103,10 +103,15 @@ function parseName(fullName: string): {
     /^(Ass\.\s*Prof\.\s*\([^)]+\)\s*Dr\.med\.)\s+/i,
     /^(Dr\.med\.univ\.)\s+/i,
     /^(Dr\.med\.)\s+/i,
-    /^(Priv\.Doz\.\s*Dr\.)\s+/i,
+    /^(Priv\.-?Doz\.\s*Dr\.)\s+/i,
     /^(Univ\.Prof\.\s*Dr\.)\s+/i,
     /^(Ass\.Prof\.\s*Dr\.)\s+/i,
     /^(Prof\.\s*Dr\.)\s+/i,
+    /^(Univ\.Doz\.\s*Dr\.)\s+/i,
+    /^(a\.o\.Univ\.Prof\.\s*Dr\.)\s+/i,
+    /^(Prim\.\s*Univ\.Doz\.\s*Dr\.)\s+/i,
+    /^(DDr\.)\s+/i,
+    /^(Doz\.\s*Dr\.)\s+/i,
     /^(Dr\.)\s+/i,
   ];
 
@@ -149,25 +154,42 @@ function normalizePhone(phone: string | null | undefined): string | null {
  * Normalisiert einen String fürs Matching:
  * - Kleinbuchstaben
  * - äöüß → ae/oe/ue/ss
- * - ö in Täto/Tattö wird als 'oo' erkannt via Extra-Alias
+ * - alle Nicht-Alphanumerischen entfernen
  */
 function normStr(s: string): string {
   return s
     .toLowerCase()
-    // Ärztekammer-Sonderfall: Tattöwierungen → tattoewierungen
-    // DB hat: tattoo-entfernung → tattooentfernung
-    // Der oe/oo Unterschied bleibt, daher extra alias unten
     .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c)
     .replace(/[^a-z0-9]/g, "");
 }
 
-/** Erzeugt alle Alias-Varianten für einen normalisierten String */
+/**
+ * Erzeugt Alias-Varianten:
+ * - oe <-> oo  (tattoewierungen <-> tattooentfernung)
+ * - Wörter extrahieren für Bag-of-Words-Match
+ */
 function normAliases(s: string): string[] {
   const base = normStr(s);
-  // oe <-> oo Variante für 'tattoewierungen' <-> 'tattooentfernung'
   const oeToOo = base.replace(/oe/g, "oo");
   const ooToOe = base.replace(/oo/g, "oe");
   return Array.from(new Set([base, oeToOo, ooToOe]));
+}
+
+/**
+ * Extrahiert normalisierte Wörter (min. 4 Zeichen) aus einem String.
+ * Ermöglicht Bag-of-Words-Match z.B.:
+ *   "Entfernung von Tattöwierungen" → ["entfernung", "tattoewierungen"]
+ *   "Tattoo-Entfernung"             → ["tattooentfernung", "tattoo", "entfernung"]
+ */
+function normWords(s: string): string[] {
+  const raw = s
+    .toLowerCase()
+    .replace(/[äöüß]/g, (c) => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[c] ?? c)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4);
+  // auch oe<->oo Varianten der einzelnen Wörter
+  const expanded = raw.flatMap((w) => [w, w.replace(/oe/g, "oo"), w.replace(/oo/g, "oe")]);
+  return Array.from(new Set(expanded));
 }
 
 // ─── Procedure cache ──────────────────────────────────────────────────────────
@@ -195,9 +217,11 @@ async function loadProcedures(): Promise<ProcedureRow[]> {
 /**
  * Mappt Ärztekammer-Bezeichnungen auf procedures.id
  * Matching-Reihenfolge:
- *  1. name_de exact match (nach Normalisierung inkl. oe/oo Aliase)
- *  2. name_de contains / vice versa (nach Normalisierung)
- *  3. aesthop_code numeric match
+ *  1. Exact match (normalisiert + oe/oo Aliase)
+ *  2. Contains match (normalisiert + oe/oo Aliase)
+ *  3. Bag-of-Words: alle signifikanten Wörter des kürzeren Strings
+ *     kommen im längeren vor (z.B. "tattoo" + "entfernung" in beiden)
+ *  4. aesthop_code numeric match
  */
 function matchProcedures(
   operationNames: string[],
@@ -207,24 +231,33 @@ function matchProcedures(
 
   for (const opName of operationNames) {
     const opAliases = normAliases(opName);
+    const opWords = normWords(opName);
     let found = false;
 
     for (const proc of procedures) {
       const procAliases = normAliases(proc.name_de);
+      const procWords = normWords(proc.name_de);
 
-      // 1. Exact match (any alias combination)
-      const exactMatch = opAliases.some((oa) => procAliases.some((pa) => oa === pa));
-      if (exactMatch) {
+      // 1. Exact match
+      if (opAliases.some((oa) => procAliases.some((pa) => oa === pa))) {
         ids.add(proc.id);
         found = true;
         break;
       }
 
-      // 2. Contains match (any alias combination)
-      const containsMatch = opAliases.some((oa) =>
-        procAliases.some((pa) => pa.includes(oa) || oa.includes(pa)),
-      );
-      if (containsMatch) {
+      // 2. Contains match
+      if (opAliases.some((oa) => procAliases.some((pa) => pa.includes(oa) || oa.includes(pa)))) {
+        ids.add(proc.id);
+        found = true;
+        break;
+      }
+
+      // 3. Bag-of-Words: alle Wörter des kürzeren Sets im längeren vorhanden?
+      const [shorter, longer] =
+        opWords.length <= procWords.length
+          ? [opWords, procWords]
+          : [procWords, opWords];
+      if (shorter.length > 0 && shorter.every((w) => longer.some((lw) => lw.includes(w) || w.includes(lw)))) {
         ids.add(proc.id);
         found = true;
         break;
@@ -232,7 +265,7 @@ function matchProcedures(
     }
 
     if (!found) {
-      // 3. aesthop_code match
+      // 4. aesthop_code match
       const codeMatch = opName.trim().match(/^(\d+)$/);
       if (codeMatch) {
         const byCode = procedures.find(
@@ -357,7 +390,6 @@ async function main() {
         .maybeSingle();
 
       // 4e. doctor_profiles upsert
-      // profile_status = 'draft' → Admin muss erst approven!
       const { data: profileData, error: profileError } = await supabase
         .from("doctor_profiles")
         .upsert(
@@ -372,7 +404,7 @@ async function main() {
             phone_public: normalizePhone(
               enriched?.internationalPhoneNumber ?? doc.phone,
             ),
-            profile_status: "draft", // ← DRAFT: nicht sichtbar bis Admin approved
+            profile_status: "draft",
             is_claimed: false,
             is_verified: false,
             verification_level: "none",
@@ -400,9 +432,7 @@ async function main() {
       const doctorId = profileData.id as string;
 
       // 4f. Location: DELETE existing primary + INSERT neu
-      // (Statt UPSERT mit fehlerhaftem Partial-Unique-Constraint)
       if (doc.city) {
-        // Vorhandene Primary-Location dieses Arztes löschen
         await supabase
           .from("locations")
           .delete()
@@ -414,6 +444,7 @@ async function main() {
           streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
         const street = streetParts.join(" ") || null;
 
+        // FIX: plain INSERT ohne onConflict — kein 42P10 mehr
         const { error: locationError } = await supabase
           .from("locations")
           .insert({
@@ -436,6 +467,7 @@ async function main() {
       }
 
       // 4g. doctor_procedures
+      // FIX: onConflict nur auf (doctor_id, procedure_id) — clinic_id entfernt
       const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
       for (const procedureId of procedureIds) {
@@ -443,7 +475,7 @@ async function main() {
           .from("doctor_procedures")
           .upsert(
             { doctor_id: doctorId, procedure_id: procedureId, is_active: true },
-            { onConflict: "doctor_id,procedure_id,clinic_id", ignoreDuplicates: true },
+            { onConflict: "doctor_id,procedure_id", ignoreDuplicates: true },
           );
 
         if (dpError) {
