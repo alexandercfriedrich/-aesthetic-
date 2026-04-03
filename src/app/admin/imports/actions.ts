@@ -513,6 +513,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
   bundeslaender?: string;
   operations?: string;
   noEnrich?: boolean;
+  limit?: number;
 }): Promise<{ workflowUrl: string }> {
   const { supabase } = await assertAdminOrEditor();
   void supabase; // auth guard used above; supabase not needed further here
@@ -540,6 +541,29 @@ export async function triggerAesthOpWorkflowAction(params?: {
     );
   }
 
+  // In preview/PR deployments, dispatch against the current branch so newly
+  // added workflow_dispatch inputs (for example "limit") are already available.
+  const dispatchRef =
+    process.env.VERCEL_GIT_COMMIT_REF ??
+    process.env.GITHUB_REF_NAME ??
+    "main";
+
+  const workflowInputs: Record<string, string> = {
+    bundeslaender: params?.bundeslaender ?? "",
+    operations: params?.operations ?? "",
+    no_enrich: params?.noEnrich ? "true" : "false",
+  };
+
+  if (
+    typeof params?.limit === "number" &&
+    Number.isInteger(params.limit) &&
+    params.limit > 0
+  ) {
+    workflowInputs.limit = String(params.limit);
+  } else if (typeof params?.limit === "number") {
+    throw new Error("`limit` muss eine positive ganze Zahl sein.");
+  }
+
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/actions/workflows/import-aesthop.yml/dispatches`,
     {
@@ -551,12 +575,8 @@ export async function triggerAesthOpWorkflowAction(params?: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        ref: "main",
-        inputs: {
-          bundeslaender: params?.bundeslaender ?? "",
-          operations: params?.operations ?? "",
-          no_enrich: params?.noEnrich ? "true" : "false",
-        },
+        ref: dispatchRef,
+        inputs: workflowInputs,
       }),
     },
   );

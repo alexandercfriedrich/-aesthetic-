@@ -13,6 +13,7 @@
  *   --no-enrich           Google-Places-Anreicherung überspringen
  *   --dry-run             Scrapen, aber nicht in die DB schreiben
  *   --force               Bereits importierte Ärzte NICHT skippen (re-importieren)
+ *   --limit <n>           Nur die ersten N Ärzte importieren (Test-Modus)
  *
  * WORKFLOW:
  *   1. Script scraped Ärztekammer + schreibt direkt in doctor_profiles mit
@@ -43,7 +44,7 @@ import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
 import type { AesthOpDoctor } from "../src/lib/scrapers/aesthetische-operationen";
 import { scrapeAesthOpDoctors } from "../src/lib/scrapers/aesthetische-operationen";
-import { enrichWithGooglePlaces } from "../src/lib/scrapers/aesthop-enrich";
+import { enrichWithGooglePlaces, type EnrichResult } from "../src/lib/scrapers/aesthop-enrich";
 import { geocodeAddress } from "../src/lib/google/geocoding";
 
 // ─── Load .env.local ────────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ const operations: string[] = [];
 let enrich = true;
 let dryRun = false;
 let force = false;
+let limitDoctors: number | null = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--bundesland" && args[i + 1]) {
@@ -84,6 +86,26 @@ for (let i = 0; i < args.length; i++) {
     dryRun = true;
   } else if (args[i] === "--force") {
     force = true;
+  } else if (args[i] === "--limit") {
+    const limitArg = args[i + 1];
+
+    if (!limitArg || !/^\d+$/.test(limitArg)) {
+      console.error(
+        "[aesthop-import] FEHLER: --limit muss als positive ganze Zahl angegeben werden.",
+      );
+      process.exit(1);
+    }
+
+    const parsedLimit = Number.parseInt(limitArg, 10);
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+      console.error(
+        "[aesthop-import] FEHLER: --limit muss größer als 0 sein.",
+      );
+      process.exit(1);
+    }
+
+    limitDoctors = parsedLimit;
+    i++;
   }
 }
 
@@ -426,24 +448,31 @@ async function checkGoogleApiKey(): Promise<void> {
 
 // ─── Already-imported lookup ─────────────────────────────────────────────────
 
+type ExistingProfileLookup = {
+  normalizedNames: Set<string>;
+  slugByNormalizedName: Map<string, string>;
+  slugBySourceUrl: Map<string, string>;
+};
+
 /**
- * Lädt alle public_display_name-Werte aus doctor_profiles (normalisiert)
- * und gibt sie als Set zurück. Wird einmalig vor der Import-Schleife befüllt,
- * damit keine N+1-Queries entstehen.
+ * Lädt bestehende Profile einmalig vor der Import-Schleife, damit Reimports
+ * vorhandene Slugs wiederverwenden und keine N+1-Queries entstehen.
  */
-async function loadExistingDisplayNames(): Promise<Set<string>> {
-  const existing = new Set<string>();
+async function loadExistingProfiles(): Promise<ExistingProfileLookup> {
+  const normalizedNames = new Set<string>();
+  const slugByNormalizedName = new Map<string, string>();
+  const slugBySourceUrl = new Map<string, string>();
   let from = 0;
   const PAGE = 1000;
 
   while (true) {
     const { data, error } = await supabase
       .from("doctor_profiles")
-      .select("public_display_name")
+      .select("slug, public_display_name, source_url")
       .range(from, from + PAGE - 1);
 
     if (error) {
-      console.error("[aesthop-import] existing names laden FEHLER:", JSON.stringify(error));
+      console.error("[aesthop-import] existing profiles laden FEHLER:", JSON.stringify(error));
       break;
     }
 
@@ -451,7 +480,15 @@ async function loadExistingDisplayNames(): Promise<Set<string>> {
 
     for (const row of data) {
       if (row.public_display_name) {
-        existing.add(normStr(row.public_display_name as string));
+        const normalizedName = normStr(row.public_display_name as string);
+        normalizedNames.add(normalizedName);
+        if (row.slug && !slugByNormalizedName.has(normalizedName)) {
+          slugByNormalizedName.set(normalizedName, row.slug as string);
+        }
+      }
+
+      if (row.source_url && row.slug && !slugBySourceUrl.has(row.source_url as string)) {
+        slugBySourceUrl.set(row.source_url as string, row.slug as string);
       }
     }
 
@@ -459,8 +496,12 @@ async function loadExistingDisplayNames(): Promise<Set<string>> {
     from += PAGE;
   }
 
-  console.log(`[aesthop-import] ${existing.size} bereits importierte Ärzte geladen.`);
-  return existing;
+  console.log(`[aesthop-import] ${normalizedNames.size} bestehende Profile geladen.`);
+  return {
+    normalizedNames,
+    slugByNormalizedName,
+    slugBySourceUrl,
+  };
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -469,6 +510,7 @@ async function main() {
   console.log("[aesthop-import] Starte Scraping…");
   if (bundeslaender.length) console.log(`  Bundesländer: ${bundeslaender.join(", ")}`);
   if (operations.length) console.log(`  Operationen: ${operations.join(", ")}`);
+  if (limitDoctors !== null) console.log(`  --limit: nur die ersten ${limitDoctors} Ärzte`);
   if (dryRun) console.log("  --dry-run: keine DB-Schreibvorgänge");
   if (force) console.log("  --force: Skip-Logik deaktiviert, alle Ärzte werden (re-)importiert");
 
@@ -490,12 +532,22 @@ async function main() {
     return;
   }
 
+  // Limit anwenden (Test-Modus)
+  const doctorsToProcess = limitDoctors !== null
+    ? doctors.slice(0, limitDoctors)
+    : doctors;
+
+  console.log(
+    `[aesthop-import] Verarbeite ${doctorsToProcess.length} von ${doctors.length} Ärzten` +
+    (limitDoctors !== null ? ` (TEST-MODUS: limit=${limitDoctors})` : ""),
+  );
+
   // 2. Procedures aus DB laden
   const procedures = await loadProcedures();
   console.log(`[aesthop-import] ${procedures.length} Procedures geladen.`);
 
-  // 3. Bereits importierte Ärzte laden (für Skip-Logik)
-  const existingNames = force ? new Set<string>() : await loadExistingDisplayNames();
+  // 3. Bereits importierte Ärzte laden (für Skip-Logik + Slug-Wiederverwendung)
+  const existingProfiles = await loadExistingProfiles();
 
   // 4. Alle Specialties aus der DB laden (für Matching)
   const { data: specialties } = await supabase
@@ -512,12 +564,12 @@ async function main() {
   let errorCount = 0;
 
   // 5. Jeden Arzt importieren
-  for (const doc of doctors) {
+  for (const doc of doctorsToProcess) {
     const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name);
 
     // Skip-Logik
     const normalizedName = normStr(displayName);
-    if (!force && existingNames.has(normalizedName)) {
+    if (!force && existingProfiles.normalizedNames.has(normalizedName)) {
       console.log(`[aesthop-import] ⏭ Skip (bereits importiert): ${displayName}`);
       skippedCount++;
       continue;
@@ -526,7 +578,7 @@ async function main() {
     console.log(`[aesthop-import] → Importiere: ${displayName}`);
 
     // 5a. Google Places Anreicherung
-    let enriched: Awaited<ReturnType<typeof enrichWithGooglePlaces>> | null = null;
+    let enriched: EnrichResult | null = null;
     if (enrich) {
       const addressStr = [doc.address, doc.postalCode, doc.city].filter(Boolean).join(", ");
       enriched = await enrichWithGooglePlaces(
@@ -534,10 +586,25 @@ async function main() {
         addressStr || doc.city || "",
       ).catch((err) => {
         console.warn(`[aesthop-import]   ⚠ Google Places Fehler für ${displayName}:`, err);
-        return null;
+        return {
+          id: "",
+          _matchStatus: "error" as const,
+          _candidateCount: 0,
+          _notes: err instanceof Error ? err.message : "Unbekannter Fehler",
+        };
       });
       if (enriched) {
-        console.log(`[aesthop-import]   ✓ Google Places: ${enriched.formattedAddress ?? "n/a"}`);
+        const statusIcon: Record<string, string> = {
+          matched_strict: "✅",
+          no_results: "⚪",
+          ambiguous: "⚠️",
+          error: "❌",
+        };
+        console.log(
+          `[aesthop-import]   ${statusIcon[enriched._matchStatus] ?? "?"} Google: ${enriched._matchStatus}` +
+          (enriched._candidateCount > 1 ? ` (${enriched._candidateCount} Kandidaten)` : "") +
+          (enriched._notes ? ` → ${enriched._notes}` : ""),
+        );
       }
     }
 
@@ -562,30 +629,56 @@ async function main() {
       }
     }
 
-    // 5d. Slug generieren (unique)
+    // 5d. Bestehenden Slug wiederverwenden, sonst neuen eindeutigen Slug generieren
     const baseSlug = slugifyDoctor(displayName);
-    let slug = baseSlug;
-    let slugSuffix = 1;
-    const MAX_SLUG_TRIES = 10;
+    const existingSlug = (doc.sourceUrl
+      ? existingProfiles.slugBySourceUrl.get(doc.sourceUrl)
+      : undefined) ?? existingProfiles.slugByNormalizedName.get(normalizedName);
 
-    while (slugSuffix <= MAX_SLUG_TRIES) {
-      const { data: existing } = await supabase
-        .from("doctor_profiles")
-        .select("id")
-        .eq("slug", slug)
-        .maybeSingle();
+    let slug = existingSlug ?? baseSlug;
 
-      if (!existing) break;
-      slug = `${baseSlug}-${++slugSuffix}`;
+    if (!existingSlug) {
+      let slugSuffix = 1;
+      const MAX_SLUG_TRIES = 10;
+
+      while (slugSuffix <= MAX_SLUG_TRIES) {
+        const { data: slugCheck } = await supabase
+          .from("doctor_profiles")
+          .select("id")
+          .eq("slug", slug)
+          .maybeSingle();
+
+        if (!slugCheck) break;
+        slug = `${baseSlug}-${++slugSuffix}`;
+      }
+
+      if (slugSuffix > MAX_SLUG_TRIES) {
+        console.error(`[aesthop-import] FEHLER: Kein freier Slug für ${displayName} nach ${MAX_SLUG_TRIES} Versuchen`);
+        errorCount++;
+        continue;
+      }
     }
 
-    if (slugSuffix > MAX_SLUG_TRIES) {
-      console.error(`[aesthop-import] FEHLER: Kein freier Slug für ${displayName} nach ${MAX_SLUG_TRIES} Versuchen`);
-      errorCount++;
-      continue;
-    }
+    // 5e. Guard: prüfen ob Profil bereits existiert (für profile_status + claimed/verified Schutz)
+    const { data: existing } = await supabase
+      .from("doctor_profiles")
+      .select("id, profile_status, is_claimed, is_verified")
+      .eq("slug", slug)
+      .maybeSingle();
 
-    // 5e. doctor_profiles upsert
+    // Guard: published profiles must not be reset to draft (per issue requirement).
+    // All other statuses (draft, archived, etc.) are set/kept as draft.
+    const profileStatus = existing?.profile_status === "published"
+      ? "published"
+      : "draft";
+
+    // Google match status berechnen
+    const googleStatus = enriched?._matchStatus ?? (enrich ? "error" : "pending");
+    const googleCandidateCount = enrich ? (enriched?._candidateCount ?? 0) : null;
+    const googleLastCheckedAt = enrich ? new Date().toISOString() : null;
+    const googleNotes = enriched?._notes ?? null;
+
+    // 5f. doctor_profiles upsert
     const { data: profileData, error: profileError } = await supabase
       .from("doctor_profiles")
       .upsert(
@@ -600,16 +693,20 @@ async function main() {
           phone_public: normalizePhone(
             enriched?.internationalPhoneNumber ?? doc.phone,
           ),
-          profile_status: "draft",
-          is_claimed: false,
-          is_verified: false,
-          verification_level: "none",
+          profile_status: profileStatus,
+          // For existing profiles: preserve is_claimed, is_verified, verification_level
+          // (they may have been set manually). Only set defaults for new profiles.
+          ...(existing ? {} : { is_claimed: false, is_verified: false, verification_level: "none" }),
           source_confidence: 1.0,
           source_type: "aesthop_scraper",
           source_url:
             doc.sourceUrl ??
             "https://www.aerztekammer.at/aesthetische-operationen-suche",
           last_verified_at: new Date().toISOString(),
+          google_match_status: googleStatus,
+          google_match_candidate_count: googleCandidateCount,
+          google_match_last_checked_at: googleLastCheckedAt,
+          google_match_notes: googleNotes,
         },
         { onConflict: "slug", ignoreDuplicates: false },
       )
@@ -626,8 +723,13 @@ async function main() {
     }
 
     const doctorId = profileData.id as string;
+    existingProfiles.normalizedNames.add(normalizedName);
+    existingProfiles.slugByNormalizedName.set(normalizedName, slug);
+    if (doc.sourceUrl) {
+      existingProfiles.slugBySourceUrl.set(doc.sourceUrl, slug);
+    }
 
-    // 5f. ALLE Locations speichern
+    // 5g. ALLE Locations speichern
     //
     // Strategie:
     //   - Alle bisherigen Locations löschen (sauberer Reimport)
@@ -760,7 +862,7 @@ async function main() {
       );
     }
 
-    // 5g. doctor_procedures
+    // 5h. doctor_procedures
     const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
     for (const procedureId of procedureIds) {

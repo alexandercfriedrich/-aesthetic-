@@ -28,21 +28,23 @@ export function AesthOpStatusCard({
 }: {
   lastBatch: AesthOpLastBatch;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ workflowUrl: string } | null>(null);
+  const [loading, setLoading] = useState<"test" | "full" | null>(null);
+  const [result, setResult] = useState<{ workflowUrl: string; mode: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleTrigger() {
-    setLoading(true);
+  async function handleTrigger(mode: "test" | "full") {
+    setLoading(mode);
     setError(null);
     setResult(null);
     try {
-      const res = await triggerAesthOpWorkflowAction();
-      setResult(res);
+      const res = await triggerAesthOpWorkflowAction(
+        mode === "test" ? { limit: 10 } : undefined,
+      );
+      setResult({ ...res, mode });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -59,22 +61,13 @@ export function AesthOpStatusCard({
             confidence_score 100, keine False Positives.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {lastBatch && (
-            <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[lastBatch.status] ?? "bg-slate-100 text-slate-600"}`}
-            >
-              {STATUS_LABELS[lastBatch.status] ?? lastBatch.status}
-            </span>
-          )}
-          <button
-            onClick={handleTrigger}
-            disabled={loading}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+        {lastBatch && (
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0 ${STATUS_COLORS[lastBatch.status] ?? "bg-slate-100 text-slate-600"}`}
           >
-            {loading ? "⏳ Wird gestartet…" : "▶ Scraper starten"}
-          </button>
-        </div>
+            {STATUS_LABELS[lastBatch.status] ?? lastBatch.status}
+          </span>
+        )}
       </div>
 
       <div className="px-5 py-4 space-y-3">
@@ -99,10 +92,51 @@ export function AesthOpStatusCard({
           </p>
         )}
 
+        {/* Two buttons: Test + Full */}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => handleTrigger("test")}
+            disabled={loading !== null}
+            className="flex-1 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-left hover:bg-amber-100 disabled:opacity-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">🔬</span>
+              <span className="text-sm font-semibold text-amber-900">
+                {loading === "test" ? "⏳ Wird gestartet…" : "Test-Import (erste 10 Ärzte)"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-amber-700">
+              Scraped + importiert nur die ersten 10 Ärzte. Ideal zum Prüfen ob Scraper + DB korrekt arbeiten.
+            </p>
+          </button>
+
+          <button
+            onClick={() => handleTrigger("full")}
+            disabled={loading !== null}
+            className="flex-1 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-left hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">🚀</span>
+              <span className="text-sm font-semibold text-emerald-900">
+                {loading === "full" ? "⏳ Wird gestartet…" : "Alle Ärzte importieren"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-emerald-700">
+              Startet den vollständigen Import aller Ärzte. Kann mehrere Minuten dauern.
+            </p>
+          </button>
+        </div>
+
         {/* Success feedback */}
         {result && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            ✅ Workflow gestartet!{" "}
+            ✅ Workflow gestartet
+            {result.mode === "test" && (
+              <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-800">
+                TEST
+              </span>
+            )}
+            {" "}
             <a
               href={result.workflowUrl}
               target="_blank"
@@ -129,4 +163,3 @@ export function AesthOpStatusCard({
     </div>
   );
 }
-

@@ -15,6 +15,10 @@ on:
         description: 'Google-Places-Anreicherung überspringen (true/false)'
         required: false
         default: 'false'
+      limit:
+        description: 'Max. Ärzte (leer = alle)'
+        required: false
+        default: ''
 
 jobs:
   scrape:
@@ -51,6 +55,7 @@ jobs:
           INPUT_BUNDESLAENDER: ${{ inputs.bundeslaender }}
           INPUT_OPERATIONS: ${{ inputs.operations }}
           INPUT_NO_ENRICH: ${{ inputs.no_enrich }}
+          INPUT_LIMIT: ${{ inputs.limit }}
         run: |
           ARGS=()
           # Build --bundesland flags
@@ -76,6 +81,10 @@ jobs:
           # Optional: skip enrichment
           if [ "$INPUT_NO_ENRICH" = "true" ]; then
             ARGS+=(--no-enrich)
+          fi
+          # Optional: limit number of doctors
+          if [ -n "$INPUT_LIMIT" ]; then
+            ARGS+=(--limit "$INPUT_LIMIT")
           fi
           npx tsx scripts/import-aesthop.ts "${ARGS[@]}"
 

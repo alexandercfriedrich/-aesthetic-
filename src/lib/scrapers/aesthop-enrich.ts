@@ -9,7 +9,6 @@
  * ⚠️  No Playwright here — safe to import in Next.js server actions.
  */
 
-import type { AesthOpDoctor } from "./aesthetische-operationen";
 import { BLACKLIST_TYPES } from "../google/places-filter";
 
 type GooglePlace = {
@@ -23,6 +22,12 @@ type GooglePlace = {
   userRatingCount?: number;
   location?: { latitude: number; longitude: number };
   types?: string[];
+};
+
+export type EnrichResult = GooglePlace & {
+  _matchStatus: "matched_strict" | "no_results" | "ambiguous" | "error";
+  _candidateCount: number;
+  _notes?: string;
 };
 
 const ENRICH_FIELD_MASK = [
@@ -39,18 +44,21 @@ const ENRICH_FIELD_MASK = [
 ].join(",");
 
 /**
- * Searches Google Places for the given ÄsthOp doctor and returns the
- * first result that matches (same city in address, no blacklisted place type).
- * Returns null if no confident match is found or if the API key is missing.
+ * Searches Google Places for the given doctor name + address and returns the
+ * best-matching result along with match-status metadata.
+ *
+ * @param name    Doctor display name (e.g. "Dr. Max Mustermann")
+ * @param address Address or city string used for geo-scoping the search
+ * @returns EnrichResult with _matchStatus tracking, or null if API key missing
  */
 export async function enrichWithGooglePlaces(
-  doctor: AesthOpDoctor,
-): Promise<GooglePlace | null> {
+  name: string,
+  address: string,
+): Promise<EnrichResult | null> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) return null; // enrichment is optional
 
-  const city = doctor.city ?? doctor.bundesland;
-  const query = `${doctor.name} ${city} Arzt`;
+  const query = `${name} ${address} Arzt`;
 
   try {
     const res = await fetch(
@@ -71,23 +79,72 @@ export async function enrichWithGooglePlaces(
       },
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return {
+        id: "",
+        _matchStatus: "error",
+        _candidateCount: 0,
+        _notes: `Google API HTTP ${res.status}`,
+      };
+    }
 
     const data = (await res.json()) as { places?: GooglePlace[] };
     const places = data.places ?? [];
 
-    const cityNorm = city?.toLowerCase() ?? "";
-    const match =
-      places.find((p) => {
-        // Must contain the city in the address
-        if (!p.formattedAddress?.toLowerCase().includes(cityNorm)) return false;
-        // Reject places with blacklisted types
-        if (p.types?.some((t) => BLACKLIST_TYPES.has(t))) return false;
-        return true;
-      }) ?? null;
+    if (places.length === 0) {
+      return {
+        id: "",
+        _matchStatus: "no_results",
+        _candidateCount: 0,
+      };
+    }
 
-    return match ?? null;
-  } catch {
-    return null;
+    // Filter: city must be in address, no blacklisted types
+    const addressNorm = address?.toLowerCase() ?? "";
+    const cityWords = addressNorm.split(/[\s,]+/).filter((w) => w.length >= 3);
+
+    const viable = places.filter((p) => {
+      const addr = p.formattedAddress?.toLowerCase() ?? "";
+      const hasCity = cityWords.length === 0 || cityWords.some((w) => addr.includes(w));
+      if (!hasCity) return false;
+      if (p.types?.some((t) => BLACKLIST_TYPES.has(t))) return false;
+      return true;
+    });
+
+    if (viable.length === 0) {
+      return {
+        id: "",
+        _matchStatus: "no_results",
+        _candidateCount: places.length,
+        _notes: `${places.length} Treffer, aber keiner passt (Stadt/Typ-Filter)`,
+      };
+    }
+
+    if (viable.length === 1) {
+      return {
+        ...viable[0],
+        _matchStatus: "matched_strict",
+        _candidateCount: 1,
+      };
+    }
+
+    // Multiple viable candidates → ambiguous
+    const candidateDescriptions = viable
+      .map((p) => p.formattedAddress ?? p.displayName?.text ?? "?")
+      .join(" | ");
+
+    return {
+      id: "",
+      _matchStatus: "ambiguous",
+      _candidateCount: viable.length,
+      _notes: `${viable.length} Treffer: ${candidateDescriptions}`,
+    };
+  } catch (err) {
+    return {
+      id: "",
+      _matchStatus: "error",
+      _candidateCount: 0,
+      _notes: err instanceof Error ? err.message : "Unbekannter Fehler",
+    };
   }
 }
