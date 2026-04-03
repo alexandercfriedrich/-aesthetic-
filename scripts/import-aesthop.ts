@@ -776,13 +776,25 @@ async function main() {
     }
 
     // 5g. doctor_procedures (soft-delete + upsert)
+    //
+    // Strategy: First mark all existing procedures as inactive, then upsert
+    // matched procedures with is_active=true. This ensures procedures that are
+    // no longer offered get soft-deleted, while active ones are preserved.
+    // ignoreDuplicates=false is required so that is_active is set back to true
+    // for re-matched procedures.
     const procedureIds = matchProcedures(doc.operations ?? [], procedures);
 
     // Mark all existing procedures for this doctor as inactive
-    await supabase
+    const { error: softDeleteError } = await supabase
       .from("doctor_procedures")
       .update({ is_active: false })
       .eq("doctor_id", doctorId);
+
+    if (softDeleteError) {
+      console.warn(
+        `[aesthop-import]   ⚠ doctor_procedures soft-delete FEHLER für ${doc.name}: ${JSON.stringify(softDeleteError)}`,
+      );
+    }
 
     // Upsert matched procedures with is_active = true
     for (const procedureId of procedureIds) {

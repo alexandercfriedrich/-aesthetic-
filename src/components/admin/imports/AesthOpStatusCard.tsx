@@ -45,9 +45,7 @@ export function AesthOpStatusCard({
     setResult(null);
     try {
       const res = await triggerAesthOpWorkflowAction(
-        limitDoctors !== null && limitDoctors > 0
-          ? { limitDoctors }
-          : undefined,
+        limitDoctors !== null ? { limitDoctors } : undefined,
       );
       setResult(res);
       setRunState("success");
