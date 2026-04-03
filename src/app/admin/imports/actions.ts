@@ -541,6 +541,23 @@ export async function triggerAesthOpWorkflowAction(params?: {
     );
   }
 
+  // In Preview-/PR-Deployments muss auf den aktuellen Branch dispatcht werden,
+  // damit neue workflow_dispatch-Inputs (z. B. "limit") bereits verfügbar sind.
+  const dispatchRef =
+    process.env.VERCEL_GIT_COMMIT_REF ??
+    process.env.GITHUB_REF_NAME ??
+    "main";
+
+  const workflowInputs: Record<string, string> = {
+    bundeslaender: params?.bundeslaender ?? "",
+    operations: params?.operations ?? "",
+    no_enrich: params?.noEnrich ? "true" : "false",
+  };
+
+  if (typeof params?.limit === "number" && Number.isFinite(params.limit)) {
+    workflowInputs.limit = String(params.limit);
+  }
+
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/actions/workflows/import-aesthop.yml/dispatches`,
     {
@@ -552,13 +569,8 @@ export async function triggerAesthOpWorkflowAction(params?: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        ref: "main",
-        inputs: {
-          bundeslaender: params?.bundeslaender ?? "",
-          operations: params?.operations ?? "",
-          no_enrich: params?.noEnrich ? "true" : "false",
-          limit: params?.limit ? String(params.limit) : "",
-        },
+        ref: dispatchRef,
+        inputs: workflowInputs,
       }),
     },
   );
