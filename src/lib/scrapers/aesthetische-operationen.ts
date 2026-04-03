@@ -8,10 +8,20 @@
  *
  * No Playwright / browser required.
  *
- * IMPORTANT NOTE on arztNr uniqueness:
- * arztNr is assigned by each Länderkammer independently. The same number can
- * refer to different doctors in different Bundesländer. The dedup key therefore
- * MUST include the Bundesland: `nr:${bundesland}:${arztNr}`.
+ * IMPORTANT NOTES on API behaviour:
+ *
+ * 1. arztNr uniqueness: arztNr is assigned by each Länderkammer independently.
+ *    The same number can refer to different doctors in different Bundesländer.
+ *    Dedup key MUST include the Bundesland: `nr:${bundesland}:${arztNr}`.
+ *
+ * 2. Intra-query duplicates: The API returns the same doctor multiple times
+ *    within a single opcode×bundesland query (e.g. doctors with multiple
+ *    practice addresses). fetchAllForCombination deduplicates internally
+ *    before returning, collecting all addresses in `addresses[]`.
+ *
+ * 3. opcode filtering: Some opcodes return identical result sets, suggesting
+ *    the API ignores the opcode filter for certain operation codes. Dedup
+ *    across all operation queries handles this correctly.
  */
 
 const API_BASE = "https://www.aerztekammer.at/api/aestop/arzts";
@@ -103,12 +113,18 @@ export interface AesthOpDoctor {
   name: string;
   /** Specialty text, e.g. "Facharzt für Plastische, Rekonstruktive und Ästhetische Chirurgie" */
   specialty: string | null;
-  /** Street + house number */
+  /** Primary address (first encountered) */
   address: string | null;
-  /** Postal code */
+  /** Primary postal code */
   postalCode: string | null;
-  /** City */
+  /** Primary city */
   city: string | null;
+  /**
+   * All practice addresses for this doctor.
+   * The API sometimes returns the same doctor with multiple addresses
+   * in a single query; all are collected here.
+   */
+  addresses: Array<{ address: string | null; postalCode: string | null; city: string | null }>;
   /** Phone number */
   phone: string | null;
   /** Website URL */
@@ -211,12 +227,19 @@ function mapRawToDoctor(raw: RawArzt, bundesland: string, operation: string): Ae
     .filter(Boolean)
     .join(" ");
 
-  return {
-    name: nameParts || `${raw.vorname} ${raw.familienname}`,
-    specialty: raw.fachText?.trim() || null,
+  const addr = {
     address: raw.strasse?.trim() || null,
     postalCode: raw.plz?.trim() || null,
     city: raw.ort?.trim() || null,
+  };
+
+  return {
+    name: nameParts || `${raw.vorname} ${raw.familienname}`,
+    specialty: raw.fachText?.trim() || null,
+    address: addr.address,
+    postalCode: addr.postalCode,
+    city: addr.city,
+    addresses: [addr],
     phone: null, // not provided by this API endpoint
     website: raw.www?.trim() || null,
     operations: [operation],
@@ -228,6 +251,13 @@ function mapRawToDoctor(raw: RawArzt, bundesland: string, operation: string): Ae
   };
 }
 
+/**
+ * Fetches all doctors for one operation×bundesland combination.
+ *
+ * Deduplicates INTERNALLY because the API sometimes returns the same doctor
+ * multiple times within a single query (e.g. multiple practice addresses).
+ * All addresses are preserved in `addresses[]`.
+ */
 async function fetchAllForCombination(
   operation: string,
   bundesland: string,
@@ -240,20 +270,48 @@ async function fetchAllForCombination(
     return [];
   }
 
-  const doctors: AesthOpDoctor[] = [];
+  const rawDoctors: AesthOpDoctor[] = [];
   let page = 0;
   let totalPages = 1;
 
   while (page < totalPages) {
     const apiPage = await fetchPage(opcode, bundeslandCode, page);
     for (const raw of apiPage.content) {
-      doctors.push(mapRawToDoctor(raw, bundesland, operation));
+      rawDoctors.push(mapRawToDoctor(raw, bundesland, operation));
     }
     totalPages = apiPage.totalPages;
     page++;
   }
 
-  return doctors;
+  // Deduplicate within this single query result.
+  // Key: arztNr (within same BL it IS unique per doctor, but API returns same
+  // arztNr multiple times when a doctor has multiple practice addresses).
+  const seen = new Map<string, AesthOpDoctor>();
+  for (const doc of rawDoctors) {
+    const key = doc.arztNr
+      ? `nr:${doc.arztNr}`
+      : `name:${doc.name.toLowerCase()}|${(doc.city ?? "").toLowerCase()}`;
+
+    const existing = seen.get(key);
+    if (existing) {
+      // Collect additional address if different
+      const addrKey = `${doc.address}|${doc.postalCode}|${doc.city}`;
+      const existingAddrKeys = existing.addresses.map(
+        (a) => `${a.address}|${a.postalCode}|${a.city}`,
+      );
+      if (!existingAddrKeys.includes(addrKey)) {
+        existing.addresses.push({
+          address: doc.address,
+          postalCode: doc.postalCode,
+          city: doc.city,
+        });
+      }
+    } else {
+      seen.set(key, { ...doc, addresses: [...doc.addresses] });
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────────
@@ -288,15 +346,14 @@ export async function scrapeAesthOpDoctors({
     }
   }
 
-  // Deduplicate by (bundesland, arztNr) — arztNr is unique only WITHIN a Länderkammer,
-  // NOT globally across all 9 Bundesländer. A Wiener doctor with arztNr=12345 is a
-  // different person than a Kärntner doctor with arztNr=12345.
+  // Global dedup across all operation×bundesland combinations.
   //
   // Key strategy:
-  //   - Has arztNr → `nr:${bundesland}:${arztNr}`   (reliable, bundesland-scoped)
+  //   - Has arztNr → `nr:${bundesland}:${arztNr}`  (bundesland-scoped — arztNr is
+  //                                                   only unique within one Länderkammer)
   //   - No arztNr  → `name:${normalizedName}|${city}` (fallback)
   //
-  // On merge: union both `operations[]` and `bundeslaender[]`.
+  // On merge: union `operations[]`, `bundeslaender[]`, and `addresses[]`.
   const dedupMap = new Map<string, AesthOpDoctor>();
 
   for (const doc of allDoctors) {
@@ -318,8 +375,18 @@ export async function scrapeAesthOpDoctors({
           existing.bundeslaender.push(bl);
         }
       }
+      // Merge addresses
+      for (const addr of doc.addresses) {
+        const addrKey = `${addr.address}|${addr.postalCode}|${addr.city}`;
+        const existingKeys = existing.addresses.map(
+          (a) => `${a.address}|${a.postalCode}|${a.city}`,
+        );
+        if (!existingKeys.includes(addrKey)) {
+          existing.addresses.push(addr);
+        }
+      }
     } else {
-      dedupMap.set(key, { ...doc, bundeslaender: [...doc.bundeslaender] });
+      dedupMap.set(key, { ...doc, addresses: [...doc.addresses], bundeslaender: [...doc.bundeslaender] });
     }
   }
 
