@@ -184,6 +184,16 @@ async function main() {
         }
       })();
 
+      // specialty_text  = Fachrichtung laut Ärztekammer (z.B. "Facharzt für Plastische Chirurgie")
+      // operations_text = alle lizensierten Eingriffe als kommaseparierter String
+      //
+      // WICHTIG: operations_text wird IMMER gesetzt, unabhängig von specialty_text.
+      // Früher wurde `doc.specialty ?? doc.operations.join(", ")` verwendet —
+      // dadurch gingen die operations[] verloren wenn specialty vorhanden war.
+      const operationsText = doc.operations.length > 0
+        ? doc.operations.join(", ")
+        : null;
+
       // confidence_score: Supabase-Spalte ist NUMERIC(5,4) → Wertebereich 0.0000–9.9999
       // Offizielle Ärztekammer-Daten = maximale Konfidenz = 1.0
       const { error: insertError } = await supabase
@@ -201,7 +211,10 @@ async function main() {
           normalized_phone: extra?.internationalPhoneNumber ?? doc.phone ?? null,
           city: doc.city ?? null,
           postal_code: geo?.postalCode ?? doc.postalCode ?? null,
-          specialty_text: doc.specialty ?? doc.operations.join(", "),
+          // specialty_text = Fachrichtungstext (unverändert, wie von der Ärztekammer geliefert)
+          specialty_text: doc.specialty ?? null,
+          // operations_text = lizensierte Eingriffe (IMMER gesetzt, nie durch specialty überschrieben)
+          operations_text: operationsText,
           confidence_score: 1.0, // NUMERIC(5,4): 0.0–1.0 Skala (nicht 0–100)
           ...(extra?.id ? { source_google_place_id: extra.id } : {}),
         });
@@ -214,6 +227,11 @@ async function main() {
         errorCount++;
       } else {
         processed++;
+        if (doc.operations.length > 0) {
+          console.log(
+            `[aesthop-import] ✓ ${doc.name} (${doc.city}): ${doc.operations.length} Eingriffe`,
+          );
+        }
       }
     } catch (err) {
       console.error(`[aesthop-import] Unerwarteter Fehler bei ${doc.name}:`, err);
