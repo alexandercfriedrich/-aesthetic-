@@ -622,6 +622,8 @@ async function main() {
       .eq("slug", slug)
       .maybeSingle();
 
+    // Guard: published profiles must not be reset to draft (per issue requirement).
+    // All other statuses (draft, archived, etc.) are set/kept as draft.
     const profileStatus = existing?.profile_status === "published"
       ? "published"
       : "draft";
@@ -647,7 +649,8 @@ async function main() {
             enriched?.internationalPhoneNumber ?? doc.phone,
           ),
           profile_status: profileStatus,
-          // is_claimed, is_verified, verification_level: nur setzen wenn noch nicht vorhanden
+          // For existing profiles: preserve is_claimed, is_verified, verification_level
+          // (they may have been set manually). Only set defaults for new profiles.
           ...(existing ? {} : { is_claimed: false, is_verified: false, verification_level: "none" }),
           source_confidence: 1.0,
           source_type: "aesthop_scraper",
