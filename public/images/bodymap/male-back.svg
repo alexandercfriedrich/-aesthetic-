@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 640" width="320" height="640">
+  <rect width="320" height="640" fill="#f8f4f0"/>
+  <!-- Head (back, hair) -->
+  <ellipse cx="160" cy="68" rx="40" ry="46" fill="#5c4033"/>
+  <!-- Neck -->
+  <rect x="144" y="108" width="32" height="28" rx="8" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Shoulders (broader for male) -->
+  <path d="M74 138 Q74 122 144 122 L176 122 Q246 122 246 138 L256 170 L64 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Torso (back) -->
+  <path d="M82 170 L76 280 Q76 300 96 300 L224 300 Q244 300 244 280 L238 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Spine line -->
+  <line x1="160" y1="136" x2="160" y2="298" stroke="#dfc5b0" stroke-width="2" stroke-dasharray="4 3"/>
+  <!-- Shoulder blades (more pronounced for male) -->
+  <ellipse cx="122" cy="195" rx="24" ry="28" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8" opacity="0.5"/>
+  <ellipse cx="198" cy="195" rx="24" ry="28" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8" opacity="0.5"/>
+  <!-- Back muscles -->
+  <path d="M108 230 Q124 224 136 240 Q124 256 108 250 Z" fill="#dfc5b0" opacity="0.3"/>
+  <path d="M212 230 Q196 224 184 240 Q196 256 212 250 Z" fill="#dfc5b0" opacity="0.3"/>
+  <!-- Left arm -->
+  <path d="M64 170 L44 175 Q26 182 22 234 L24 304 Q24 318 36 318 L52 318 Q64 318 66 304 L72 244 L82 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right arm -->
+  <path d="M256 170 L276 175 Q294 182 298 234 L296 304 Q296 318 284 318 L268 318 Q256 318 254 304 L248 244 L238 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left hand -->
+  <ellipse cx="38" cy="324" rx="14" ry="10" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right hand -->
+  <ellipse cx="282" cy="324" rx="14" ry="10" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Gluteus area -->
+  <path d="M96 300 L224 300 Q248 300 250 320 L244 360 L76 360 L70 320 Q72 300 96 300 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <ellipse cx="124" cy="335" rx="28" ry="22" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8" opacity="0.5"/>
+  <ellipse cx="196" cy="335" rx="28" ry="22" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8" opacity="0.5"/>
+  <!-- Left leg upper -->
+  <path d="M76 360 L100 360 L106 460 L78 460 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right leg upper -->
+  <path d="M220 360 L244 360 L244 460 L214 460 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left knee -->
+  <ellipse cx="91" cy="463" rx="15" ry="9" fill="#dfc5b0" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right knee -->
+  <ellipse cx="229" cy="463" rx="15" ry="9" fill="#dfc5b0" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left leg lower -->
+  <path d="M76 470 L106 470 L108 558 L74 558 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right leg lower -->
+  <path d="M212 470 L244 470 L246 558 L210 558 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left foot -->
+  <ellipse cx="90" cy="562" rx="18" ry="9" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right foot -->
+  <ellipse cx="230" cy="562" rx="18" ry="9" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+</svg>
