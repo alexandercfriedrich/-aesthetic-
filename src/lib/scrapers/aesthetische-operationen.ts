@@ -7,6 +7,11 @@
  *   ?opcode=<code>&bundesLands=<code>&page=<n>&size=100&sort=familienname&sortDirection=asc
  *
  * No Playwright / browser required.
+ *
+ * IMPORTANT NOTE on arztNr uniqueness:
+ * arztNr is assigned by each Länderkammer independently. The same number can
+ * refer to different doctors in different Bundesländer. The dedup key therefore
+ * MUST include the Bundesland: `nr:${bundesland}:${arztNr}`.
  */
 
 const API_BASE = "https://www.aerztekammer.at/api/aestop/arzts";
@@ -110,11 +115,16 @@ export interface AesthOpDoctor {
   website: string | null;
   /** Operations this doctor is licensed for */
   operations: string[];
-  /** Federal state */
+  /** Primary federal state (first encountered — kept for backwards compatibility) */
   bundesland: string;
+  /**
+   * All federal states this doctor is licensed in.
+   * A doctor can have registrations in multiple Länderkammern.
+   */
+  bundeslaender: string[];
   /** Source page URL for the detail record */
   sourceUrl: string | null;
-  /** Internal Ärztekammer doctor number */
+  /** Internal Ärztekammer doctor number (unique per Länderkammer, NOT globally) */
   arztNr: number | null;
   /** OAK ID */
   oakid: string | null;
@@ -211,6 +221,7 @@ function mapRawToDoctor(raw: RawArzt, bundesland: string, operation: string): Ae
     website: raw.www?.trim() || null,
     operations: [operation],
     bundesland,
+    bundeslaender: [bundesland],
     sourceUrl: null,
     arztNr: raw.arztNr ?? null,
     oakid: raw.oakid?.trim() || null,
@@ -277,26 +288,51 @@ export async function scrapeAesthOpDoctors({
     }
   }
 
-  // Deduplicate: prefer arztNr as key (most reliable unique identifier).
-  // Same doctor can appear in multiple operation queries → merge their operations list.
+  // Deduplicate by (bundesland, arztNr) — arztNr is unique only WITHIN a Länderkammer,
+  // NOT globally across all 9 Bundesländer. A Wiener doctor with arztNr=12345 is a
+  // different person than a Kärntner doctor with arztNr=12345.
+  //
+  // Key strategy:
+  //   - Has arztNr → `nr:${bundesland}:${arztNr}`   (reliable, bundesland-scoped)
+  //   - No arztNr  → `name:${normalizedName}|${city}` (fallback)
+  //
+  // On merge: union both `operations[]` and `bundeslaender[]`.
   const dedupMap = new Map<string, AesthOpDoctor>();
+
   for (const doc of allDoctors) {
     const key = doc.arztNr
-      ? `nr:${doc.arztNr}`
+      ? `nr:${doc.bundesland}:${doc.arztNr}`
       : `name:${doc.name.toLowerCase()}|${(doc.city ?? "").toLowerCase()}`;
+
     const existing = dedupMap.get(key);
     if (existing) {
+      // Merge operations
       for (const op of doc.operations) {
         if (!existing.operations.includes(op)) {
           existing.operations.push(op);
         }
       }
+      // Merge bundeslaender
+      for (const bl of doc.bundeslaender) {
+        if (!existing.bundeslaender.includes(bl)) {
+          existing.bundeslaender.push(bl);
+        }
+      }
     } else {
-      dedupMap.set(key, { ...doc });
+      dedupMap.set(key, { ...doc, bundeslaender: [...doc.bundeslaender] });
     }
   }
 
   const deduplicated: AesthOpDoctor[] = Array.from(dedupMap.values());
+
+  // Log per-bundesland breakdown
+  const blCounts: Record<string, number> = {};
+  for (const doc of deduplicated) {
+    blCounts[doc.bundesland] = (blCounts[doc.bundesland] ?? 0) + 1;
+  }
+  for (const [bl, count] of Object.entries(blCounts).sort((a, b) => b[1] - a[1])) {
+    console.log(`[aesthop] Unique Ärzte in ${bl}: ${count}`);
+  }
 
   return { doctors: deduplicated, rawCount };
 }
