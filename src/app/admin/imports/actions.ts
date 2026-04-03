@@ -84,6 +84,38 @@ export async function approveCandidateAction(candidateId: string) {
   revalidatePath("/admin/imports");
 }
 
+export async function mergeCandidateAction(
+  candidateId: string,
+  matchedProfileId: string,
+) {
+  const { supabase } = await assertAdminOrEditor();
+
+  const { data: candidate, error: fetchErr } = await supabase
+    .from("import_candidates")
+    .select("batch_id")
+    .eq("id", candidateId)
+    .single();
+  if (fetchErr || !candidate) throw new Error("Kandidat nicht gefunden");
+
+  const { error } = await supabase
+    .from("import_candidates")
+    .update({ status: "approved", matched_doctor_id: matchedProfileId })
+    .eq("id", candidateId);
+  if (error) throw error;
+
+  const { data: batchData } = await supabase
+    .from("import_batches")
+    .select("approved_rows")
+    .eq("id", candidate.batch_id)
+    .single();
+  await supabase
+    .from("import_batches")
+    .update({ approved_rows: (batchData?.approved_rows ?? 0) + 1 })
+    .eq("id", candidate.batch_id);
+
+  revalidatePath("/admin/imports");
+}
+
 export async function rejectCandidateAction(candidateId: string) {
   const { supabase } = await assertAdminOrEditor();
 
@@ -160,17 +192,24 @@ export async function publishBatchAction(batchId: string) {
     // ── 1. Resolve doctor_profiles id ──────────────────────────────────────
     let doctorId: string;
 
-    const { data: existing } = await service
-      .from("doctor_profiles")
-      .select("id, is_claimed")
-      .eq("slug", baseSlug)
-      .maybeSingle();
+    // When the admin chose "merge into existing", matched_doctor_id is already
+    // set by mergeCandidateAction — use that profile directly.
+    if (candidate.matched_doctor_id) {
+      const { data: matched } = await service
+        .from("doctor_profiles")
+        .select("id, is_claimed")
+        .eq("id", candidate.matched_doctor_id)
+        .maybeSingle();
 
-    if (existing) {
-      // Never overwrite a claimed profile
-      if (existing.is_claimed) {
-        doctorId = existing.id;
-      } else {
+      if (!matched) {
+        console.error(
+          "[publish] matched_doctor_id not found:",
+          candidate.matched_doctor_id,
+        );
+        continue;
+      }
+      // Respect claimed profile — do not modify its display name, just link
+      if (!matched.is_claimed) {
         const { error: updateErr } = await service
           .from("doctor_profiles")
           .update({
@@ -179,37 +218,66 @@ export async function publishBatchAction(batchId: string) {
             source_type: "aesthop_scraper",
             updated_at: new Date().toISOString(),
           })
-          .eq("id", existing.id);
+          .eq("id", matched.id);
         if (updateErr) {
           console.error("[publish] doctor_profiles update failed:", updateErr);
           continue;
         }
-        doctorId = existing.id;
       }
+      doctorId = matched.id;
     } else {
-      const slug = await generateUniqueSlug(service, baseSlug);
-      const { first_name, last_name } = parseName(displayName);
-      const { data: inserted, error: insertErr } = await service
+      // "Create new profile" path — slug-based lookup / insert
+      const { data: existing } = await service
         .from("doctor_profiles")
-        .insert({
-          slug,
-          first_name,
-          last_name,
-          public_display_name: displayName,
-          profile_status: "published",
-          source_type: "aesthop_scraper",
-          source_url: candidate.source_url ?? null,
-          source_confidence: candidate.confidence_score ?? 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
-      if (insertErr || !inserted) {
-        console.error("[publish] doctor_profiles insert failed:", insertErr);
-        continue;
+        .select("id, is_claimed")
+        .eq("slug", baseSlug)
+        .maybeSingle();
+
+      if (existing) {
+        // Never overwrite a claimed profile
+        if (existing.is_claimed) {
+          doctorId = existing.id;
+        } else {
+          const { error: updateErr } = await service
+            .from("doctor_profiles")
+            .update({
+              public_display_name: displayName,
+              profile_status: "published",
+              source_type: "aesthop_scraper",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existing.id);
+          if (updateErr) {
+            console.error("[publish] doctor_profiles update failed:", updateErr);
+            continue;
+          }
+          doctorId = existing.id;
+        }
+      } else {
+        const slug = await generateUniqueSlug(service, baseSlug);
+        const { first_name, last_name } = parseName(displayName);
+        const { data: inserted, error: insertErr } = await service
+          .from("doctor_profiles")
+          .insert({
+            slug,
+            first_name,
+            last_name,
+            public_display_name: displayName,
+            profile_status: "published",
+            source_type: "aesthop_scraper",
+            source_url: candidate.source_url ?? null,
+            source_confidence: candidate.confidence_score ?? 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+        if (insertErr || !inserted) {
+          console.error("[publish] doctor_profiles insert failed:", insertErr);
+          continue;
+        }
+        doctorId = inserted.id;
       }
-      doctorId = inserted.id;
     }
 
     // ── 2. Location ─────────────────────────────────────────────────────────

@@ -193,7 +193,7 @@ export function BatchDetailClient({ batch, candidates }: Props) {
         {selectedCandidate && (
           <div className="space-y-4">
             <MergeDecisionPanel
-              candidate={selectedCandidate as Record<string, unknown>}
+              candidate={selectedCandidate}
               matchedProfile={null}
             />
             <div className="rounded-2xl border bg-amber-50 border-amber-200 px-5 py-4 text-xs text-amber-700">
