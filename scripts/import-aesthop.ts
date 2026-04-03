@@ -97,7 +97,7 @@ for (let i = 0; i < args.length; i++) {
     }
 
     const parsedLimit = Number.parseInt(limitArg, 10);
-    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+    if (parsedLimit <= 0) {
       console.error(
         "[aesthop-import] FEHLER: --limit muss größer als 0 sein.",
       );
@@ -546,7 +546,8 @@ async function main() {
   const procedures = await loadProcedures();
   console.log(`[aesthop-import] ${procedures.length} Procedures geladen.`);
 
-  // 3. Bereits importierte Ärzte laden (für Skip-Logik + Slug-Wiederverwendung)
+  // 3. Bereits importierte Ärzte laden (für Skip-Logik + Slug-Wiederverwendung).
+  // Auch bei --force brauchen wir die Maps, damit Reimports denselben Slug treffen.
   const existingProfiles = await loadExistingProfiles();
 
   // 4. Alle Specialties aus der DB laden (für Matching)
