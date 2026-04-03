@@ -26,7 +26,7 @@
  *   Ein Arzt kann mehrere Standorte haben (Ordination + Krankenhaus, etc.).
  *   Dieses Script:
  *   - Sammelt alle Adressen eines Arztes in addresses[]
- *   - Erkennt Ordinationen via Keyword (ord/ordination/oard) + Namensabgleich
+ *   - Erkennt Ordinationen via institutionName (dgName) + Namensteile
  *   - Setzt is_primary=true für die Ordination (höchste Priorität)
  *   - Speichert ALLE Standorte in der locations-Tabelle
  *
@@ -275,37 +275,6 @@ function detectLocationType(
   return "other";
 }
 
-/**
- * Wählt aus einem addresses[]-Array die beste Primäradresse.
- * Priorität: ordination > kassenambulanz > krankenhaus > other > erste
- *
- * Gibt den Index im Array zurück.
- */
-function selectPrimaryLocationIndex(
-  addresses: AesthOpDoctor["addresses"],
-  firstName: string,
-  lastName: string,
-): number {
-  // Enriched address objects mit location_type
-  const typed = addresses.map((addr, idx) => ({
-    idx,
-    addr,
-    type: detectLocationType(
-      // dgName ist nicht direkt in addresses[], aber der Scraper füllt address mit der Straße.
-      // Wir haben leider keinen institutionName in addresses[] — daher nur für die
-      // ERSTE Adresse den dgName aus doc verfügbar.
-      // Hier matchen wir hilfsweise auf die Straße/Stadt falls kein dgName.
-      // Die Hauptlogik greift via dgName im äußeren Aufruf.
-      null,
-      firstName,
-      lastName,
-    ),
-  }));
-
-  // Fallback: Index 0
-  return 0;
-}
-
 // ─── Procedure cache ──────────────────────────────────────────────────────────
 
 type ProcedureRow = {
@@ -528,303 +497,301 @@ async function main() {
   // 3. Bereits importierte Ärzte laden (für Skip-Logik)
   const existingNames = force ? new Set<string>() : await loadExistingDisplayNames();
 
-  // 4. Import-Batch anlegen
-  const label =
-    bundeslaender.length === 1
-      ? `ÄsthOp – ${bundeslaender[0]}`
-      : "ÄsthOp-Arztsuche (Österreichische Ärztekammer)";
+  // 4. Alle Specialties aus der DB laden (für Matching)
+  const { data: specialties } = await supabase
+    .from("medical_specialties")
+    .select("id, name_de");
 
-  const { data: batch, error: batchError } = await supabase
-    .from("import_batches")
-    .insert({
-      source_type: "aesthop_scraper",
-      source_label: label,
-      status: "running",
-      started_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
-
-  if (batchError || !batch) {
-    console.error("[aesthop-import] Batch anlegen FEHLER:", JSON.stringify(batchError));
-    process.exit(1);
+  const specialtyMap = new Map<string, string>();
+  for (const s of specialties ?? []) {
+    if (s.name_de) specialtyMap.set(normStr(s.name_de as string), s.id as string);
   }
-  const batchId = batch.id as string;
-  console.log(`[aesthop-import] Batch: ${batchId}`);
 
-  // 5. Ärzte verarbeiten
-  let processed = 0;
-  let skipped = 0;
+  let importedCount = 0;
+  let skippedCount = 0;
   let errorCount = 0;
 
+  // 5. Jeden Arzt importieren
   for (const doc of doctors) {
-    try {
-      // 5a. Namen parsen
-      const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name ?? "");
+    const { titlePrefix, firstName, lastName, displayName } = parseName(doc.name);
 
-      // ── Skip-Check ───────────────────────────────────────────────────────
-      // Prüfe per normalisiertem public_display_name, ob der Arzt bereits in
-      // der DB ist. Dadurch kann der Job jederzeit neu gestartet werden.
-      if (!force && existingNames.has(normStr(displayName))) {
-        console.log(`[aesthop-import] ⏭ Überspringe (bereits importiert): ${displayName}`);
-        skipped++;
-        continue;
+    // Skip-Logik
+    const normalizedName = normStr(displayName);
+    if (!force && existingNames.has(normalizedName)) {
+      console.log(`[aesthop-import] ⏭ Skip (bereits importiert): ${displayName}`);
+      skippedCount++;
+      continue;
+    }
+
+    console.log(`[aesthop-import] → Importiere: ${displayName}`);
+
+    // 5a. Google Places Anreicherung
+    let enriched: Awaited<ReturnType<typeof enrichWithGooglePlaces>> | null = null;
+    if (enrich) {
+      const addressStr = [doc.address, doc.postalCode, doc.city].filter(Boolean).join(", ");
+      enriched = await enrichWithGooglePlaces(
+        displayName,
+        addressStr || doc.city || "",
+      ).catch((err) => {
+        console.warn(`[aesthop-import]   ⚠ Google Places Fehler für ${displayName}:`, err);
+        return null;
+      });
+      if (enriched) {
+        console.log(`[aesthop-import]   ✓ Google Places: ${enriched.formattedAddress ?? "n/a"}`);
       }
-      // ─────────────────────────────────────────────────────────────────────
+    }
 
-      const baseSlug = slugifyDoctor(lastName ? `${firstName}-${lastName}` : firstName);
-      const citySlug = slugifyDoctor(doc.city ?? "");
-      const slug = citySlug ? `${baseSlug}-${citySlug}` : baseSlug;
+    // 5b. Website URL
+    const websiteUrl = enriched?.websiteUri ?? doc.website ?? null;
 
-      // 5b. Google Places Anreicherung (optional, nur für Primäradresse)
-      const enriched = enrich
-        ? await enrichWithGooglePlaces(doc).catch(() => null)
-        : null;
-
-      // 5c. Specialty
-      const { data: specialtyRow } = await supabase
-        .from("specialties")
-        .select("id")
-        .ilike("name_de", `%plastisch%`)
-        .limit(1)
-        .maybeSingle();
-
-      const websiteUrl = enriched?.websiteUri ?? doc.website ?? null;
-
-      // 5d. doctor_profiles upsert
-      const { data: profileData, error: profileError } = await supabase
-        .from("doctor_profiles")
-        .upsert(
-          {
-            slug,
-            first_name: firstName,
-            last_name: lastName,
-            title_prefix: titlePrefix,
-            public_display_name: displayName,
-            primary_specialty_id: specialtyRow?.id ?? null,
-            website_url: websiteUrl,
-            phone_public: normalizePhone(
-              enriched?.internationalPhoneNumber ?? doc.phone,
-            ),
-            profile_status: "draft",
-            is_claimed: false,
-            is_verified: false,
-            verification_level: "none",
-            source_confidence: 1.0,
-            source_type: "aesthop_scraper",
-            source_url:
-              doc.sourceUrl ??
-              "https://www.aerztekammer.at/aesthetische-operationen-suche",
-            last_verified_at: new Date().toISOString(),
-          },
-          { onConflict: "slug", ignoreDuplicates: false },
-        )
-        .select("id")
-        .single();
-
-      if (profileError || !profileData) {
-        console.error(
-          `[aesthop-import] doctor_profiles FEHLER für ${doc.name}:`,
-          JSON.stringify(profileError),
-        );
-        errorCount++;
-        continue;
-      }
-
-      const doctorId = profileData.id as string;
-
-      // 5e. ALLE Locations speichern
-      //
-      // Strategie:
-      //   - Alle bisherigen Locations löschen (sauberer Reimport)
-      //   - Für jede Adresse in addresses[]: location_type bestimmen
-      //   - dgName aus API steht in doc.addresses[] leider nicht direkt,
-      //     aber der erste Eintrag entspricht doc.address (der Primäreintrag
-      //     aus mapRawToDoctor). Weitere Adressen kommen aus Deduplizierung.
-      //   - Für die PRIMARY-Erkennung nutzen wir zusätzlich doc.dgName falls verfügbar.
-      //
-      // Da AesthOpDoctor.addresses[] nur {address, postalCode, city} hat (kein dgName),
-      // erkennen wir den Typ über Straßenname + Namensteile des Arztes.
-      // Der dgName (Institutionsname) ist in der RawArzt-API-Response vorhanden und
-      // wird im Scraper in doc.address gespeichert – jedoch als Straße, nicht als Name.
-      // → Für bessere Erkennung: dgName direkt auswerten wenn verfügbar.
-
-      if (doc.addresses.length > 0) {
-        // Alle bestehenden Locations löschen
-        await supabase
-          .from("locations")
-          .delete()
-          .eq("doctor_id", doctorId);
-
-        // Bestimme primäre Location:
-        // Prüfe ob eine Adresse einer Ordination entspricht.
-        // Da wir dgName nicht direkt in addresses[] haben, verwenden wir
-        // die erste Adresse als Fallback-Primäradresse.
-        // Falls doc.dgName (Institutionsname) auf Ordination hindeutet → erste Adresse = Ordination.
-        // Ansonsten: keine automatische Ordinations-Erkennung möglich ohne dgName.
-        //
-        // NOTE: Der Scraper in aesthetische-operationen.ts speichert dgName in
-        //       RawArzt.dgName, aber gibt es nicht ans AesthOpDoctor-Interface weiter.
-        //       TODO: dgName zu AesthOpDoctor hinzufügen für vollständige Erkennung.
-        //       Bis dahin: Primäre = erste Adresse (wie bisher), alle weiteren = sekundär.
-        //
-        // UPDATE: Wir erkennen über den dgName in doc selbst – der Scraper baut
-        //         doc.name aus titelPre+vorname+familienname und doc.address aus strasse.
-        //         Der dgName (z.B. "Ord. AGNESE") ist aktuell NICHT in AesthOpDoctor.
-        //         Wir fügen ihn jetzt als institutionName zu AesthOpDoctor hinzu (separate Task).
-        //         Übergangsweise: erste Adresse = primary.
-
-        for (let i = 0; i < doc.addresses.length; i++) {
-          const addr = doc.addresses[i];
-          if (!addr.city) continue;
-
-          // Straße parsen
-          const streetParts = (addr.address ?? "").trim().split(/\s+/);
-          const houseNumber =
-            streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
-          const street = streetParts.join(" ") || null;
-
-          // Geocoding nur für erste Adresse (Primary)
-          let lat: number | null = null;
-          let lng: number | null = null;
-          let resolvedPostalCode: string | null = addr.postalCode ?? null;
-
-          if (i === 0) {
-            const addressStr = [addr.address, addr.postalCode, addr.city]
-              .filter(Boolean)
-              .join(", ");
-            if (addressStr) {
-              const geo = await geocodeAddress(addressStr).catch(() => null);
-              lat = geo?.lat ?? null;
-              lng = geo?.lng ?? null;
-              resolvedPostalCode = geo?.postalCode ?? addr.postalCode ?? null;
-            }
-          }
-
-          // is_primary: erste Adresse ist primary (bis dgName verfügbar)
-          const isPrimary = i === 0;
-
-          const { error: locationError } = await supabase
-            .from("locations")
-            .insert({
-              doctor_id: doctorId,
-              country_code: "AT",
-              city: addr.city,
-              postal_code: resolvedPostalCode,
-              street,
-              house_number: houseNumber,
-              latitude: lat,
-              longitude: lng,
-              is_primary: isPrimary,
-              location_type: "other", // wird korrekt gesetzt sobald dgName im Interface ist
-              location_label: null,
-            });
-
-          if (locationError) {
-            console.warn(
-              `[aesthop-import]   ⚠ Location[${i}] FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
-            );
+    // 5c. Specialty matching
+    let specialtyRow: { id: string } | null = null;
+    if (doc.specialty) {
+      const normSpec = normStr(doc.specialty);
+      const matchedId = specialtyMap.get(normSpec);
+      if (matchedId) {
+        specialtyRow = { id: matchedId };
+      } else {
+        // Partial match
+        for (const [key, id] of specialtyMap.entries()) {
+          if (normSpec.includes(key) || key.includes(normSpec)) {
+            specialtyRow = { id };
+            break;
           }
         }
+      }
+    }
 
-        const locCount = doc.addresses.length;
-        console.log(
-          `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): ${locCount} Standort${locCount > 1 ? "e" : ""}, primary=${doc.addresses[0]?.city ?? "?"}`,
-        );
-      } else if (doc.city) {
-        // Fallback: nur city bekannt, keine addresses[]
-        const streetParts = (doc.address ?? "").trim().split(/\s+/);
+    // 5d. Slug generieren (unique)
+    const baseSlug = slugifyDoctor(displayName);
+    let slug = baseSlug;
+    let slugSuffix = 1;
+    const MAX_SLUG_TRIES = 10;
+
+    while (slugSuffix <= MAX_SLUG_TRIES) {
+      const { data: existing } = await supabase
+        .from("doctor_profiles")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (!existing) break;
+      slug = `${baseSlug}-${++slugSuffix}`;
+    }
+
+    if (slugSuffix > MAX_SLUG_TRIES) {
+      console.error(`[aesthop-import] FEHLER: Kein freier Slug für ${displayName} nach ${MAX_SLUG_TRIES} Versuchen`);
+      errorCount++;
+      continue;
+    }
+
+    // 5e. doctor_profiles upsert
+    const { data: profileData, error: profileError } = await supabase
+      .from("doctor_profiles")
+      .upsert(
+        {
+          slug,
+          first_name: firstName,
+          last_name: lastName,
+          title_prefix: titlePrefix,
+          public_display_name: displayName,
+          primary_specialty_id: specialtyRow?.id ?? null,
+          website_url: websiteUrl,
+          phone_public: normalizePhone(
+            enriched?.internationalPhoneNumber ?? doc.phone,
+          ),
+          profile_status: "draft",
+          is_claimed: false,
+          is_verified: false,
+          verification_level: "none",
+          source_confidence: 1.0,
+          source_type: "aesthop_scraper",
+          source_url:
+            doc.sourceUrl ??
+            "https://www.aerztekammer.at/aesthetische-operationen-suche",
+          last_verified_at: new Date().toISOString(),
+        },
+        { onConflict: "slug", ignoreDuplicates: false },
+      )
+      .select("id")
+      .single();
+
+    if (profileError || !profileData) {
+      console.error(
+        `[aesthop-import] doctor_profiles FEHLER für ${doc.name}:`,
+        JSON.stringify(profileError),
+      );
+      errorCount++;
+      continue;
+    }
+
+    const doctorId = profileData.id as string;
+
+    // 5f. ALLE Locations speichern
+    //
+    // Strategie:
+    //   - Alle bisherigen Locations löschen (sauberer Reimport)
+    //   - Für jede Adresse in addresses[]: location_type via detectLocationType() bestimmen
+    //   - institutionName (dgName aus API) ist in addr.institutionName verfügbar
+    //   - Primäre Location = Adresse mit dem niedrigsten typeOrder-Rang
+    //     (ordination > kassenambulanz > krankenhaus > other)
+
+    if (doc.addresses.length > 0) {
+      // Alle bestehenden Locations löschen
+      await supabase
+        .from("locations")
+        .delete()
+        .eq("doctor_id", doctorId);
+
+      // Bestimme primäre Location anhand location_type:
+      // Ordination hat höchste Priorität, danach kassenambulanz, krankenhaus, other.
+      // Falls keine Ordination gefunden → erste Adresse = primary.
+      const typeOrder: Record<string, number> = {
+        ordination: 0,
+        kassenambulanz: 1,
+        krankenhaus: 2,
+        other: 3,
+      };
+      const addrTypes = doc.addresses.map((a) =>
+        detectLocationType(a.institutionName ?? null, firstName, lastName),
+      );
+      const primaryIdx = addrTypes.reduce(
+        (best, t, i) => (typeOrder[t] < typeOrder[addrTypes[best]] ? i : best),
+        0,
+      );
+
+      for (let i = 0; i < doc.addresses.length; i++) {
+        const addr = doc.addresses[i];
+        if (!addr.city) continue;
+
+        // Straße parsen
+        const streetParts = (addr.address ?? "").trim().split(/\s+/);
         const houseNumber =
           streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
         const street = streetParts.join(" ") || null;
 
-        const addressStr = [doc.address, doc.postalCode, doc.city]
-          .filter(Boolean)
-          .join(", ");
-        const geo = addressStr
-          ? await geocodeAddress(addressStr).catch(() => null)
-          : null;
+        // Geocoding nur für die primäre Adresse
+        let lat: number | null = null;
+        let lng: number | null = null;
+        let resolvedPostalCode: string | null = addr.postalCode ?? null;
 
-        await supabase.from("locations").delete().eq("doctor_id", doctorId);
+        if (i === primaryIdx) {
+          const addressStr = [addr.address, addr.postalCode, addr.city]
+            .filter(Boolean)
+            .join(", ");
+          if (addressStr) {
+            const geo = await geocodeAddress(addressStr).catch(() => null);
+            lat = geo?.lat ?? null;
+            lng = geo?.lng ?? null;
+            resolvedPostalCode = geo?.postalCode ?? addr.postalCode ?? null;
+          }
+        }
+
+        const isPrimary = i === primaryIdx;
+        const locType = addrTypes[i];
 
         const { error: locationError } = await supabase
           .from("locations")
           .insert({
             doctor_id: doctorId,
             country_code: "AT",
-            city: doc.city,
-            postal_code: geo?.postalCode ?? doc.postalCode ?? null,
+            city: addr.city,
+            postal_code: resolvedPostalCode,
             street,
             house_number: houseNumber,
-            latitude: geo?.lat ?? null,
-            longitude: geo?.lng ?? null,
-            is_primary: true,
-            location_type: "other",
-            location_label: null,
+            latitude: lat,
+            longitude: lng,
+            is_primary: isPrimary,
+            location_type: locType,
+            location_label: addr.institutionName ?? null,
           });
 
         if (locationError) {
           console.warn(
-            `[aesthop-import]   ⚠ Location FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
+            `[aesthop-import]   ⚠ Location[${i}] FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
           );
         }
+      }
 
-        console.log(
-          `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): 1 Standort`,
+      const locCount = doc.addresses.length;
+      console.log(
+        `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): ${locCount} Standort${locCount > 1 ? "e" : ""}, primary=${doc.addresses[primaryIdx]?.city ?? "?"}`,
+      );
+    } else if (doc.city) {
+      // Fallback: nur city bekannt, keine addresses[]
+      const streetParts = (doc.address ?? "").trim().split(/\s+/);
+      const houseNumber =
+        streetParts.at(-1)?.match(/^\d/) ? streetParts.pop() ?? null : null;
+      const street = streetParts.join(" ") || null;
+
+      const addressStr = [doc.address, doc.postalCode, doc.city]
+        .filter(Boolean)
+        .join(", ");
+      const geo = addressStr
+        ? await geocodeAddress(addressStr).catch(() => null)
+        : null;
+
+      await supabase.from("locations").delete().eq("doctor_id", doctorId);
+
+      const { error: locationError } = await supabase
+        .from("locations")
+        .insert({
+          doctor_id: doctorId,
+          country_code: "AT",
+          city: doc.city,
+          postal_code: geo?.postalCode ?? doc.postalCode ?? null,
+          street,
+          house_number: houseNumber,
+          latitude: geo?.lat ?? null,
+          longitude: geo?.lng ?? null,
+          is_primary: true,
+          location_type: detectLocationType(doc.institutionName ?? null, firstName, lastName),
+          location_label: doc.institutionName ?? null,
+        });
+
+      if (locationError) {
+        console.warn(
+          `[aesthop-import]   ⚠ Location FEHLER für ${doc.name}: ${JSON.stringify(locationError)}`,
         );
       }
 
-      // 5f. doctor_procedures
-      const procedureIds = matchProcedures(doc.operations ?? [], procedures);
-
-      for (const procedureId of procedureIds) {
-        const { error: dpError } = await supabase
-          .from("doctor_procedures")
-          .upsert(
-            { doctor_id: doctorId, procedure_id: procedureId, is_active: true },
-            { onConflict: "doctor_id,procedure_id", ignoreDuplicates: true },
-          );
-
-        if (dpError) {
-          console.warn(
-            `[aesthop-import]   ⚠ doctor_procedures FEHLER: ${JSON.stringify(dpError)}`,
-          );
-        }
-      }
-
-      // Nach erfolgreichem Import: lokalen Cache aktualisieren,
-      // damit spätere Einträge im selben Lauf ebenfalls geskippt werden.
-      existingNames.add(normStr(displayName));
-
-      processed++;
-    } catch (err) {
-      console.error(`[aesthop-import] Unerwarteter Fehler bei ${doc.name}:`, err);
-      errorCount++;
+      console.log(
+        `[aesthop-import] ✓ ${displayName} (${doc.city ?? "?"}): 1 Standort`,
+      );
     }
+
+    // 5g. doctor_procedures
+    const procedureIds = matchProcedures(doc.operations ?? [], procedures);
+
+    for (const procedureId of procedureIds) {
+      const { error: procError } = await supabase
+        .from("doctor_procedures")
+        .upsert(
+          { doctor_id: doctorId, procedure_id: procedureId },
+          { onConflict: "doctor_id,procedure_id", ignoreDuplicates: true },
+        );
+
+      if (procError) {
+        console.warn(
+          `[aesthop-import]   ⚠ doctor_procedures FEHLER für ${doc.name}: ${JSON.stringify(procError)}`,
+        );
+      }
+    }
+
+    console.log(
+      `[aesthop-import] ✓ ${displayName}: ${procedureIds.length} Procedures verknüpft`,
+    );
+
+    importedCount++;
+    existingNames.add(normalizedName);
   }
 
-  // 6. Batch abschließen
-  await supabase
-    .from("import_batches")
-    .update({
-      status: processed === 0 && skipped === 0 ? "failed" : "needs_review",
-      total_rows: rawCount,
-      processed_rows: processed,
-      error_count: errorCount,
-      finished_at: new Date().toISOString(),
-    })
-    .eq("id", batchId);
-
   console.log(
-    `\n[aesthop-import] ✅ Fertig. Importiert: ${processed}, Übersprungen: ${skipped}, Fehler: ${errorCount}`,
+    `\n[aesthop-import] Fertig. Importiert: ${importedCount}, Übersprungen: ${skippedCount}, Fehler: ${errorCount}`,
   );
-  console.log(`[aesthop-import] ℹ  Alle Profile: profile_status='draft'`);
-  console.log(`[aesthop-import] ℹ  Zum Publishen: Admin-UI → Drafts → approven.`);
-
-  if (errorCount > 0 && processed === 0 && skipped === 0) process.exit(1);
 }
 
 main().catch((err) => {
-  console.error("[aesthop-import] Fataler Fehler:", err);
+  console.error("[aesthop-import] Unerwarteter Fehler:", err);
   process.exit(1);
 });
