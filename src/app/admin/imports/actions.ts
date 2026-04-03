@@ -550,6 +550,23 @@ export async function triggerAesthOpWorkflowAction(params?: {
         ? String(params.limitDoctors)
         : "0",
   };
+  const normalizeWorkflowRef = (value: string | undefined): string | null => {
+    if (!value) return null;
+    const refPart = value.includes("@") ? value.split("@").pop() ?? null : value;
+    if (!refPart) return null;
+    if (refPart.startsWith("refs/heads/")) {
+      return refPart.replace("refs/heads/", "");
+    }
+    if (refPart.startsWith("refs/tags/")) {
+      return refPart.replace("refs/tags/", "");
+    }
+    return refPart;
+  };
+  const workflowRef =
+    normalizeWorkflowRef(process.env.GITHUB_WORKFLOW_REF) ??
+    normalizeWorkflowRef(process.env.VERCEL_GIT_COMMIT_REF) ??
+    normalizeWorkflowRef(process.env.GITHUB_REF_NAME) ??
+    "main";
 
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/actions/workflows/import-aesthop.yml/dispatches`,
@@ -562,7 +579,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        ref: "main",
+        ref: workflowRef,
         inputs,
       }),
     },
