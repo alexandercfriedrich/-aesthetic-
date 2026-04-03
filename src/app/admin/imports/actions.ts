@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { fetchGooglePlacesCandidates } from "@/lib/google/places";
 import { geocodeAddress } from "@/lib/google/geocoding";
@@ -8,6 +8,360 @@ import type { Database, Json } from "@/types/database";
 
 type ImportCandidateInsert =
   Database["public"]["Tables"]["import_candidates"]["Insert"];
+
+// ─── Slug helpers ─────────────────────────────────────────────────────────────
+
+function buildBaseSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+async function generateUniqueSlug(
+  supabase: Awaited<ReturnType<typeof createServiceClient>>,
+  base: string,
+): Promise<string> {
+  const MAX_ATTEMPTS = 1000;
+  let slug = base;
+  let counter = 2;
+  while (counter <= MAX_ATTEMPTS + 1) {
+    const { data } = await supabase
+      .from("doctor_profiles")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!data) return slug;
+    slug = `${base}-${counter}`;
+    counter++;
+  }
+  throw new Error(`Kein eindeutiger Slug für "${base}" nach ${MAX_ATTEMPTS} Versuchen gefunden.`);
+}
+
+function parseName(fullName: string): { first_name: string; last_name: string } {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) return { first_name: "", last_name: parts[0] };
+  return {
+    first_name: parts.slice(0, -1).join(" "),
+    last_name: parts[parts.length - 1],
+  };
+}
+
+// ─── Candidate review actions ─────────────────────────────────────────────────
+
+export async function approveCandidateAction(candidateId: string) {
+  const { supabase } = await assertAdminOrEditor();
+
+  const { data: candidate, error: fetchErr } = await supabase
+    .from("import_candidates")
+    .select("batch_id")
+    .eq("id", candidateId)
+    .single();
+  if (fetchErr || !candidate) throw new Error("Kandidat nicht gefunden");
+
+  const { error } = await supabase
+    .from("import_candidates")
+    .update({ status: "approved" })
+    .eq("id", candidateId);
+  if (error) throw error;
+
+  const { data: batchData } = await supabase
+    .from("import_batches")
+    .select("approved_rows")
+    .eq("id", candidate.batch_id)
+    .single();
+  await supabase
+    .from("import_batches")
+    .update({ approved_rows: (batchData?.approved_rows ?? 0) + 1 })
+    .eq("id", candidate.batch_id);
+
+  revalidatePath("/admin/imports");
+}
+
+export async function mergeCandidateAction(
+  candidateId: string,
+  matchedProfileId: string,
+) {
+  const { supabase } = await assertAdminOrEditor();
+
+  const { data: candidate, error: fetchErr } = await supabase
+    .from("import_candidates")
+    .select("batch_id")
+    .eq("id", candidateId)
+    .single();
+  if (fetchErr || !candidate) throw new Error("Kandidat nicht gefunden");
+
+  const { error } = await supabase
+    .from("import_candidates")
+    .update({ status: "approved", matched_doctor_id: matchedProfileId })
+    .eq("id", candidateId);
+  if (error) throw error;
+
+  const { data: batchData } = await supabase
+    .from("import_batches")
+    .select("approved_rows")
+    .eq("id", candidate.batch_id)
+    .single();
+  await supabase
+    .from("import_batches")
+    .update({ approved_rows: (batchData?.approved_rows ?? 0) + 1 })
+    .eq("id", candidate.batch_id);
+
+  revalidatePath("/admin/imports");
+}
+
+export async function rejectCandidateAction(candidateId: string) {
+  const { supabase } = await assertAdminOrEditor();
+
+  const { data: candidate, error: fetchErr } = await supabase
+    .from("import_candidates")
+    .select("batch_id")
+    .eq("id", candidateId)
+    .single();
+  if (fetchErr || !candidate) throw new Error("Kandidat nicht gefunden");
+
+  const { error } = await supabase
+    .from("import_candidates")
+    .update({ status: "rejected" })
+    .eq("id", candidateId);
+  if (error) throw error;
+
+  const { data: batchData } = await supabase
+    .from("import_batches")
+    .select("rejected_rows")
+    .eq("id", candidate.batch_id)
+    .single();
+  await supabase
+    .from("import_batches")
+    .update({ rejected_rows: (batchData?.rejected_rows ?? 0) + 1 })
+    .eq("id", candidate.batch_id);
+
+  revalidatePath("/admin/imports");
+}
+
+export async function approveAllCandidatesAction(batchId: string) {
+  const { supabase } = await assertAdminOrEditor();
+
+  const { error } = await supabase
+    .from("import_candidates")
+    .update({ status: "approved" })
+    .eq("batch_id", batchId)
+    .in("status", ["new", "needs_review"]);
+  if (error) throw error;
+
+  const { count } = await supabase
+    .from("import_candidates")
+    .select("id", { count: "exact", head: true })
+    .eq("batch_id", batchId)
+    .eq("status", "approved");
+
+  await supabase
+    .from("import_batches")
+    .update({ approved_rows: count ?? 0 })
+    .eq("id", batchId);
+
+  revalidatePath("/admin/imports");
+}
+
+export async function publishBatchAction(batchId: string) {
+  // Auth guard uses the regular (user) client; all writes go via the service client.
+  await assertAdminOrEditor();
+  const service = await createServiceClient();
+
+  const { data: candidates, error: fetchErr } = await service
+    .from("import_candidates")
+    .select("*")
+    .eq("batch_id", batchId)
+    .eq("status", "approved");
+  if (fetchErr) throw fetchErr;
+  if (!candidates || candidates.length === 0) {
+    throw new Error("Keine freigegebenen Kandidaten zum Veröffentlichen.");
+  }
+
+  for (const candidate of candidates) {
+    const displayName = candidate.normalized_name ?? "Unbekannt";
+    const baseSlug = buildBaseSlug(displayName);
+    if (!baseSlug) continue;
+
+    // ── 1. Resolve doctor_profiles id ──────────────────────────────────────
+    let doctorId: string;
+
+    // When the admin chose "merge into existing", matched_doctor_id is already
+    // set by mergeCandidateAction — use that profile directly.
+    if (candidate.matched_doctor_id) {
+      const { data: matched } = await service
+        .from("doctor_profiles")
+        .select("id, is_claimed")
+        .eq("id", candidate.matched_doctor_id)
+        .maybeSingle();
+
+      if (!matched) {
+        console.error(
+          "[publish] matched_doctor_id not found:",
+          candidate.matched_doctor_id,
+        );
+        continue;
+      }
+      // Respect claimed profile — do not modify its display name, just link
+      if (!matched.is_claimed) {
+        const { error: updateErr } = await service
+          .from("doctor_profiles")
+          .update({
+            public_display_name: displayName,
+            profile_status: "published",
+            source_type: "aesthop_scraper",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", matched.id);
+        if (updateErr) {
+          console.error("[publish] doctor_profiles update failed:", updateErr);
+          continue;
+        }
+      }
+      doctorId = matched.id;
+    } else {
+      // "Create new profile" path — slug-based lookup / insert
+      const { data: existing } = await service
+        .from("doctor_profiles")
+        .select("id, is_claimed")
+        .eq("slug", baseSlug)
+        .maybeSingle();
+
+      if (existing) {
+        // Never overwrite a claimed profile
+        if (existing.is_claimed) {
+          doctorId = existing.id;
+        } else {
+          const { error: updateErr } = await service
+            .from("doctor_profiles")
+            .update({
+              public_display_name: displayName,
+              profile_status: "published",
+              source_type: "aesthop_scraper",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existing.id);
+          if (updateErr) {
+            console.error("[publish] doctor_profiles update failed:", updateErr);
+            continue;
+          }
+          doctorId = existing.id;
+        }
+      } else {
+        const slug = await generateUniqueSlug(service, baseSlug);
+        const { first_name, last_name } = parseName(displayName);
+        const { data: inserted, error: insertErr } = await service
+          .from("doctor_profiles")
+          .insert({
+            slug,
+            first_name,
+            last_name,
+            public_display_name: displayName,
+            profile_status: "published",
+            source_type: "aesthop_scraper",
+            source_url: candidate.source_url ?? null,
+            source_confidence: candidate.confidence_score ?? 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+        if (insertErr || !inserted) {
+          console.error("[publish] doctor_profiles insert failed:", insertErr);
+          continue;
+        }
+        doctorId = inserted.id;
+      }
+    }
+
+    // ── 2. Location ─────────────────────────────────────────────────────────
+    if (candidate.city) {
+      const { data: existingLoc } = await service
+        .from("locations")
+        .select("id")
+        .eq("doctor_id", doctorId)
+        .eq("city", candidate.city)
+        .maybeSingle();
+
+      if (!existingLoc) {
+        await service.from("locations").insert({
+          doctor_id: doctorId,
+          city: candidate.city,
+          is_primary: true,
+        });
+      }
+    }
+
+    // ── 3. Doctor procedures ────────────────────────────────────────────────
+    const rawJson = candidate.raw_json as Record<string, unknown> | null;
+    const operations = Array.isArray(rawJson?.operations)
+      ? (rawJson.operations as unknown[])
+      : [];
+
+    for (const op of operations) {
+      const opName = typeof op === "string" ? op : null;
+      if (!opName) continue;
+
+      // Use separate parameterized queries instead of string interpolation
+      // to avoid potential filter-injection via raw_json content.
+      let proc: { id: string } | null = null;
+      const { data: bySlug } = await service
+        .from("procedures")
+        .select("id")
+        .eq("slug", opName)
+        .maybeSingle();
+      if (bySlug) {
+        proc = bySlug;
+      } else {
+        const { data: byName } = await service
+          .from("procedures")
+          .select("id")
+          .ilike("name_de", opName)
+          .maybeSingle();
+        proc = byName ?? null;
+      }
+
+      if (proc) {
+        const { error: dpErr } = await service
+          .from("doctor_procedures")
+          .insert({
+            doctor_id: doctorId,
+            procedure_id: proc.id,
+          });
+        if (dpErr && dpErr.code !== "23505") {
+          console.error("[publish] doctor_procedures insert failed:", dpErr);
+        }
+      }
+    }
+
+    // ── 4. Update candidate ─────────────────────────────────────────────────
+    await service
+      .from("import_candidates")
+      .update({
+        status: "merged",
+        matched_doctor_id: doctorId,
+      })
+      .eq("id", candidate.id);
+  }
+
+  // ── 5. Close batch ────────────────────────────────────────────────────────
+  await service
+    .from("import_batches")
+    .update({
+      status: "completed",
+      finished_at: new Date().toISOString(),
+    })
+    .eq("id", batchId);
+
+  revalidatePath("/admin/imports");
+  revalidatePath("/admin/doctors");
+}
 
 async function assertAdminOrEditor() {
   const supabase = await createClient();
