@@ -7,6 +7,8 @@ import { MergeDecisionPanel } from "@/components/admin/imports/MergeDecisionPane
 import {
   approveAllCandidatesAction,
   publishBatchAction,
+  approveCandidateAction,
+  rejectCandidateAction,
 } from "@/app/admin/imports/actions";
 import type { Database } from "@/types/database";
 
@@ -18,9 +20,9 @@ const CANDIDATE_STATUS_COLORS: Record<string, string> = {
   new: "bg-slate-100 text-slate-600",
   matched: "bg-emerald-100 text-emerald-700",
   needs_review: "bg-amber-100 text-amber-700",
-  approved: "bg-blue-100 text-blue-700",
+  approved: "bg-emerald-100 text-emerald-700",
   rejected: "bg-rose-100 text-rose-700",
-  merged: "bg-purple-100 text-purple-700",
+  merged: "bg-blue-100 text-blue-700",
 };
 
 const CANDIDATE_STATUS_LABELS: Record<string, string> = {
@@ -40,12 +42,17 @@ type Props = {
 export function BatchDetailClient({ batch, candidates }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [pendingCandidateId, setPendingCandidateId] = useState<string | null>(
+    null,
+  );
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const first =
       candidates.find((c) => c.status === "needs_review") ?? candidates[0];
     return first?.id ?? null;
   });
   const [error, setError] = useState<string | null>(null);
+
+  const isCompleted = batch.status === "completed";
 
   const selectedCandidate =
     candidates.find((c) => c.id === selectedId) ?? null;
@@ -83,31 +90,73 @@ export function BatchDetailClient({ batch, candidates }: Props) {
     });
   }
 
+  function handleApproveCandidate(candidateId: string) {
+    setError(null);
+    setPendingCandidateId(candidateId);
+    startTransition(async () => {
+      try {
+        await approveCandidateAction(candidateId);
+        router.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Fehler beim Freigeben",
+        );
+      } finally {
+        setPendingCandidateId(null);
+      }
+    });
+  }
+
+  function handleRejectCandidate(candidateId: string) {
+    setError(null);
+    setPendingCandidateId(candidateId);
+    startTransition(async () => {
+      try {
+        await rejectCandidateAction(candidateId);
+        router.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Fehler beim Ablehnen",
+        );
+      } finally {
+        setPendingCandidateId(null);
+      }
+    });
+  }
+
   return (
     <>
       {/* Batch action toolbar */}
-      <div className="mb-6 flex flex-wrap gap-3">
-        {pendingCount > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isPending}
-            onClick={handleApproveAll}
-          >
-            {isPending ? "…" : `✓ Alle freigeben (${pendingCount})`}
-          </Button>
-        )}
-        {approvedCount > 0 && (
-          <Button
-            variant="default"
-            size="sm"
-            disabled={isPending}
-            onClick={handlePublish}
-          >
-            {isPending
-              ? "Wird veröffentlicht…"
-              : `🚀 Freigegebene veröffentlichen (${approvedCount})`}
-          </Button>
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        {isCompleted ? (
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">
+            ✅ Veröffentlicht
+          </span>
+        ) : (
+          <>
+            {pendingCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isPending}
+                onClick={handleApproveAll}
+              >
+                {isPending ? "…" : `✓ Alle freigeben (${pendingCount})`}
+              </Button>
+            )}
+            {approvedCount > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                disabled={isPending}
+                onClick={handlePublish}
+              >
+                {isPending
+                  ? "Wird veröffentlicht…"
+                  : `🚀 Freigegebene veröffentlichen (${approvedCount})`}
+              </Button>
+            )}
+          </>
         )}
         {error && (
           <p className="self-center text-xs text-rose-600">{error}</p>
@@ -136,13 +185,18 @@ export function BatchDetailClient({ batch, candidates }: Props) {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                   Status
                 </th>
+                {!isCompleted && (
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    Aktionen
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y">
               {candidates.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={isCompleted ? 4 : 5}
                     className="px-4 py-10 text-center text-muted-foreground"
                   >
                     Keine Kandidaten in diesem Batch.
@@ -151,6 +205,11 @@ export function BatchDetailClient({ batch, candidates }: Props) {
               )}
               {candidates.map((c) => {
                 const isSelected = c.id === selectedId;
+                const isRowPending = pendingCandidateId === c.id;
+                const canAct =
+                  !isCompleted &&
+                  !isPending &&
+                  ["new", "needs_review"].includes(c.status);
                 return (
                   <tr
                     key={c.id}
@@ -182,6 +241,38 @@ export function BatchDetailClient({ batch, candidates }: Props) {
                         {CANDIDATE_STATUS_LABELS[c.status] ?? c.status}
                       </span>
                     </td>
+                    {!isCompleted && (
+                      <td
+                        className="px-4 py-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {isRowPending ? (
+                          <span className="text-xs text-muted-foreground">
+                            …
+                          </span>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!canAct}
+                              onClick={() => handleApproveCandidate(c.id)}
+                            >
+                              Freigeben
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!canAct}
+                              onClick={() => handleRejectCandidate(c.id)}
+                              className="text-rose-600 hover:text-rose-700 hover:border-rose-300"
+                            >
+                              Ablehnen
+                            </Button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
