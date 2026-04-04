@@ -3,11 +3,14 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { BatchDetailClient } from "@/components/admin/imports/BatchDetailClient";
 
+const PAGE_SIZE = 100;
+
 type PageProps = {
   params: Promise<{ batchId: string }>;
+  searchParams: Promise<{ page?: string }>;
 };
 
-async function getImportBatch(batchId: string) {
+async function getImportBatch(batchId: string, page: number) {
   const supabase = await createClient();
 
   const { data: batch, error } = await supabase
@@ -18,23 +21,30 @@ async function getImportBatch(batchId: string) {
 
   if (error || !batch) return null;
 
-  const { data: candidates } = await supabase
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  const { data: candidates, count } = await supabase
     .from("import_candidates")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("batch_id", batchId)
     .order("confidence_score", { ascending: false })
-    .limit(100);
+    .range(from, to);
 
-  return { batch, candidates: candidates ?? [] };
+  return { batch, candidates: candidates ?? [], totalCount: count ?? 0 };
 }
 
-export default async function ImportBatchDetailPage({ params }: PageProps) {
+export default async function ImportBatchDetailPage({ params, searchParams }: PageProps) {
   const { batchId } = await params;
-  const result = await getImportBatch(batchId);
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, parseInt(pageParam ?? "1", 10));
+
+  const result = await getImportBatch(batchId, page);
 
   if (!result) notFound();
 
-  const { batch, candidates } = result;
+  const { batch, candidates, totalCount } = result;
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   return (
     <div className="p-6">
@@ -62,7 +72,7 @@ export default async function ImportBatchDetailPage({ params }: PageProps) {
           ["Freigegeben", batch.approved_rows],
           ["Abgelehnt", batch.rejected_rows],
           ["Fehler", batch.error_count],
-          ["Kandidaten", candidates.length],
+          ["Kandidaten", totalCount],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border bg-white px-4 py-3">
             <div className="text-2xl font-bold tabular-nums">{value}</div>
@@ -73,6 +83,33 @@ export default async function ImportBatchDetailPage({ params }: PageProps) {
 
       {/* Interactive part: toolbar + candidate table + merge panel */}
       <BatchDetailClient batch={batch} candidates={candidates} />
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Seite {page} von {totalPages} · {totalCount} Kandidaten gesamt
+          </p>
+          <div className="flex gap-2">
+            {page > 1 && (
+              <Link
+                href={`/admin/imports/${batchId}?page=${page - 1}`}
+                className="rounded-lg border bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                ← Zurück
+              </Link>
+            )}
+            {page < totalPages && (
+              <Link
+                href={`/admin/imports/${batchId}?page=${page + 1}`}
+                className="rounded-lg border bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Weiter →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
