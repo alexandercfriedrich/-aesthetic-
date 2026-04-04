@@ -194,7 +194,11 @@ export async function publishBatchAction(batchId: string) {
 
     // When the admin chose "merge into existing", matched_doctor_id is already
     // set by mergeCandidateAction — use that profile directly.
-    if (candidate.matched_doctor_id) {
+    // If the matched profile no longer exists (stale reference), fall through
+    // to the create-new-profile path instead of silently skipping.
+    let useCreatePath = !candidate.matched_doctor_id;
+
+    if (candidate.matched_doctor_id && !useCreatePath) {
       const { data: matched } = await service
         .from("doctor_profiles")
         .select("id, is_claimed")
@@ -202,30 +206,33 @@ export async function publishBatchAction(batchId: string) {
         .maybeSingle();
 
       if (!matched) {
-        console.error(
-          "[publish] matched_doctor_id not found:",
+        console.warn(
+          "[publish] matched_doctor_id not found, falling back to create-new:",
           candidate.matched_doctor_id,
         );
-        continue;
-      }
-      // Respect claimed profile — do not modify its display name, just link
-      if (!matched.is_claimed) {
-        const { error: updateErr } = await service
-          .from("doctor_profiles")
-          .update({
-            public_display_name: displayName,
-            profile_status: "published",
-            source_type: "aesthop_scraper",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", matched.id);
-        if (updateErr) {
-          console.error("[publish] doctor_profiles update failed:", updateErr);
-          continue;
+        useCreatePath = true;
+      } else {
+        // Respect claimed profile — do not modify its display name, just link
+        if (!matched.is_claimed) {
+          const { error: updateErr } = await service
+            .from("doctor_profiles")
+            .update({
+              public_display_name: displayName,
+              profile_status: "published",
+              source_type: "aesthop_scraper",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", matched.id);
+          if (updateErr) {
+            console.error("[publish] doctor_profiles update failed:", updateErr);
+            continue;
+          }
         }
+        doctorId = matched.id;
       }
-      doctorId = matched.id;
-    } else {
+    }
+
+    if (useCreatePath) {
       // "Create new profile" path — slug-based lookup / insert
       const { data: existing } = await service
         .from("doctor_profiles")
@@ -285,13 +292,13 @@ export async function publishBatchAction(batchId: string) {
       const { data: existingLoc } = await service
         .from("locations")
         .select("id")
-        .eq("doctor_id", doctorId)
+        .eq("doctor_id", doctorId!)
         .eq("city", candidate.city)
         .maybeSingle();
 
       if (!existingLoc) {
         await service.from("locations").insert({
-          doctor_id: doctorId,
+          doctor_id: doctorId!,
           city: candidate.city,
           is_primary: true,
         });
@@ -331,7 +338,7 @@ export async function publishBatchAction(batchId: string) {
         const { error: dpErr } = await service
           .from("doctor_procedures")
           .insert({
-            doctor_id: doctorId,
+            doctor_id: doctorId!,
             procedure_id: proc.id,
           });
         if (dpErr && dpErr.code !== "23505") {
@@ -345,7 +352,7 @@ export async function publishBatchAction(batchId: string) {
       .from("import_candidates")
       .update({
         status: "merged",
-        matched_doctor_id: doctorId,
+        matched_doctor_id: doctorId!,
       })
       .eq("id", candidate.id);
   }
