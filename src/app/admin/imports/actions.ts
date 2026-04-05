@@ -93,16 +93,40 @@ export async function updateCandidateAction(
     normalized_phone?: string;
     normalized_website_domain?: string;
     specialty_text?: string;
+    entity_kind?: string;
     reviewer_notes?: string;
+    operations?: string[];
   },
 ) {
   const { supabase } = await assertAdminOrEditor();
 
-  const { error } = await supabase
-    .from("import_candidates")
-    .update({ ...fields, updated_at: new Date().toISOString() })
-    .eq("id", candidateId);
-  if (error) throw error;
+  const { operations, ...columnFields } = fields;
+
+  // If operations were provided, merge them into raw_json
+  if (operations !== undefined) {
+    const { data: existing } = await supabase
+      .from("import_candidates")
+      .select("raw_json")
+      .eq("id", candidateId)
+      .single();
+    const currentRaw = (existing?.raw_json as Record<string, unknown>) ?? {};
+    const updatedRaw = { ...currentRaw, operations };
+    const { error } = await supabase
+      .from("import_candidates")
+      .update({
+        ...columnFields,
+        raw_json: updatedRaw,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", candidateId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from("import_candidates")
+      .update({ ...columnFields, updated_at: new Date().toISOString() })
+      .eq("id", candidateId);
+    if (error) throw error;
+  }
 
   revalidatePath("/admin/imports");
 }
