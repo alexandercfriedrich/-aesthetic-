@@ -84,6 +84,29 @@ export async function approveCandidateAction(candidateId: string) {
   revalidatePath("/admin/imports");
 }
 
+export async function updateCandidateAction(
+  candidateId: string,
+  fields: {
+    normalized_name?: string;
+    city?: string;
+    postal_code?: string;
+    normalized_phone?: string;
+    normalized_website_domain?: string;
+    specialty_text?: string;
+    reviewer_notes?: string;
+  },
+) {
+  const { supabase } = await assertAdminOrEditor();
+
+  const { error } = await supabase
+    .from("import_candidates")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", candidateId);
+  if (error) throw error;
+
+  revalidatePath("/admin/imports");
+}
+
 export async function mergeCandidateAction(
   candidateId: string,
   matchedProfileId: string,
@@ -315,8 +338,6 @@ export async function publishBatchAction(batchId: string) {
       const opName = typeof op === "string" ? op : null;
       if (!opName) continue;
 
-      // Use separate parameterized queries instead of string interpolation
-      // to avoid potential filter-injection via raw_json content.
       let proc: { id: string } | null = null;
       const { data: bySlug } = await service
         .from("procedures")
@@ -394,14 +415,12 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   const query = formData.get("query") as string;
   const city = formData.get("city") as string;
 
-  // Normalize entity_kind: fall back to default when missing or blank
   const rawEntityKind = formData.get("entity_kind");
   const entityKind =
     typeof rawEntityKind === "string" && rawEntityKind.trim() !== ""
       ? rawEntityKind
       : "doctor";
 
-  // Normalize and validate max_results: parseInt, default, and clamp to [1, 200]
   const rawMaxResults = formData.get("max_results");
   let maxResults = 60;
   if (typeof rawMaxResults === "string" && rawMaxResults.trim() !== "") {
@@ -412,7 +431,6 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   }
   maxResults = Math.min(Math.max(maxResults, 1), 200);
 
-  // 1. Import-Batch anlegen
   const { data: batch, error: batchError } = await supabase
     .from("import_batches")
     .insert({
@@ -427,19 +445,15 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
   if (batchError || !batch)
     throw batchError ?? new Error(`Batch konnte nicht angelegt werden: ${JSON.stringify(batchError)}`);
 
-  // 2. Google Places API aufrufen (Places New – Text Search) + False-Positive-Filter
   const { places: candidates, rawCount } = await fetchGooglePlacesCandidates({
     query: `${query} ${city}`,
     maxResults,
   });
 
-  // 3. Kandidaten mit Geocoding anreichern (begrenzte Parallelisierung) + Bulk-Insert
   const CONCURRENCY = 5;
-
   const candidateRows: ImportCandidateInsert[] = [];
   let errorCount = 0;
 
-  // Process candidates in batches of CONCURRENCY
   for (let i = 0; i < candidates.length; i += CONCURRENCY) {
     const chunk = candidates.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
@@ -481,7 +495,6 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
     }
   }
 
-  // Bulk-insert all candidate rows at once
   if (candidateRows.length > 0) {
     const { error: insertError } = await supabase
       .from("import_candidates")
@@ -492,8 +505,6 @@ export async function startGooglePlacesBatchAction(formData: FormData) {
     }
   }
 
-  // 4. Batch abschließen
-  // total_rows = rohe Google-Ergebnisse (vor Filter), processed_rows = tatsächlich importiert
   const processed = candidateRows.length;
   await supabase
     .from("import_batches")
@@ -523,7 +534,7 @@ export async function triggerAesthOpWorkflowAction(params?: {
   limit?: number;
 }): Promise<{ workflowUrl: string }> {
   const { supabase } = await assertAdminOrEditor();
-  void supabase; // auth guard used above; supabase not needed further here
+  void supabase;
 
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
@@ -548,8 +559,6 @@ export async function triggerAesthOpWorkflowAction(params?: {
     );
   }
 
-  // In preview/PR deployments, dispatch against the current branch so newly
-  // added workflow_dispatch inputs (for example "limit") are already available.
   const dispatchRef =
     process.env.VERCEL_GIT_COMMIT_REF ??
     process.env.GITHUB_REF_NAME ??
