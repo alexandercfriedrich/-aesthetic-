@@ -284,6 +284,7 @@ export function BatchDetailClient({ batch, candidates }: Props) {
         {selectedCandidate && (
           <div className="space-y-4">
             <MergeDecisionPanel
+              key={selectedCandidate.id}
               candidate={selectedCandidate}
               matchedProfile={null}
             />
