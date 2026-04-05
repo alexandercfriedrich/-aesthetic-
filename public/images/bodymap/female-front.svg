@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 640" width="320" height="640">
+  <rect width="320" height="640" fill="#f8f4f0"/>
+  <!-- Head -->
+  <ellipse cx="160" cy="68" rx="38" ry="44" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Neck -->
+  <rect x="148" y="108" width="24" height="28" rx="8" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Shoulders -->
+  <path d="M90 138 Q90 124 148 124 L172 124 Q230 124 230 138 L236 170 L84 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Torso -->
+  <path d="M96 170 L84 280 Q84 300 100 300 L220 300 Q236 300 236 280 L224 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left arm -->
+  <path d="M84 170 L64 172 Q46 176 42 230 L44 300 Q44 312 56 312 L68 312 Q80 312 82 300 L86 240 L96 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right arm -->
+  <path d="M236 170 L256 172 Q274 176 278 230 L276 300 Q276 312 264 312 L252 312 Q240 312 238 300 L234 240 L224 170 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left hand -->
+  <ellipse cx="56" cy="318" rx="14" ry="10" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right hand -->
+  <ellipse cx="264" cy="318" rx="14" ry="10" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Hip / Pelvis -->
+  <path d="M100 300 L220 300 Q240 300 244 320 L240 360 L80 360 L76 320 Q80 300 100 300 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left leg upper -->
+  <path d="M80 360 L100 360 L104 460 L78 460 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right leg upper -->
+  <path d="M220 360 L240 360 L242 460 L216 460 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left knee -->
+  <ellipse cx="91" cy="462" rx="14" ry="8" fill="#dfc5b0" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right knee -->
+  <ellipse cx="229" cy="462" rx="14" ry="8" fill="#dfc5b0" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left leg lower -->
+  <path d="M78 468 L104 468 L106 558 L76 558 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right leg lower -->
+  <path d="M216 468 L242 468 L244 558 L214 558 Z" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Left foot -->
+  <ellipse cx="90" cy="562" rx="16" ry="8" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Right foot -->
+  <ellipse cx="230" cy="562" rx="16" ry="8" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Breast area suggestion (female) -->
+  <ellipse cx="138" cy="208" rx="18" ry="14" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8" opacity="0.5"/>
+  <ellipse cx="182" cy="208" rx="18" ry="14" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8" opacity="0.5"/>
+  <!-- Facial features -->
+  <ellipse cx="148" cy="60" rx="4" ry="3" fill="#c9a98a" opacity="0.6"/>
+  <ellipse cx="172" cy="60" rx="4" ry="3" fill="#c9a98a" opacity="0.6"/>
+  <path d="M148 80 Q160 88 172 80" stroke="#c9a98a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <ellipse cx="160" cy="72" rx="5" ry="3.5" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8"/>
+  <!-- Hair -->
+  <ellipse cx="160" cy="36" rx="40" ry="24" fill="#6b4226"/>
+  <ellipse cx="160" cy="56" rx="40" ry="18" fill="#6b4226"/>
+  <path d="M120 44 Q108 80 114 112" stroke="#6b4226" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <path d="M200 44 Q212 80 206 112" stroke="#6b4226" stroke-width="8" fill="none" stroke-linecap="round"/>
+</svg>

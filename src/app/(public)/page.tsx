@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { searchDoctorsAction } from "./suche/actions";
 import { Search, MapPin, ShieldCheck, Star, ArrowRight } from "lucide-react";
+import { BodyMap } from "@/components/home/BodyMap";
 
 export const metadata: Metadata = {
   title: "aesthetic – Ästhetische Medizin in Österreich",
@@ -130,6 +131,19 @@ export default function HomePage() {
 
       {/* Top Treatments */}
       <section className="py-16">
+        <div className="container">
+          <h2 className="mb-4 text-2xl font-bold text-center">
+            Oder wähle direkt über die Körperkarte
+          </h2>
+          <p className="mb-8 text-center text-muted-foreground text-sm">
+            Klicke auf eine Körperregion und starte deine Suche nach dem passenden Arzt.
+          </p>
+          <BodyMap />
+        </div>
+      </section>
+
+      {/* Popular Treatments shortcut */}
+      <section className="py-16 bg-slate-50">
         <div className="container">
           <h2 className="mb-8 text-2xl font-bold">Beliebte Behandlungen</h2>
           <div className="flex flex-wrap gap-3">

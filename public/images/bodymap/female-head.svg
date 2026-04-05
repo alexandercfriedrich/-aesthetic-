@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 384" width="320" height="384">
+  <rect width="320" height="384" fill="#f8f4f0"/>
+  <!-- Neck -->
+  <rect x="142" y="268" width="36" height="60" rx="12" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Head shape -->
+  <ellipse cx="160" cy="160" rx="88" ry="104" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Hair (female) -->
+  <ellipse cx="160" cy="76" rx="90" ry="68" fill="#6b4226"/>
+  <path d="M72 130 Q60 180 70 240 Q80 200 88 180" fill="#6b4226"/>
+  <path d="M248 130 Q260 180 250 240 Q240 200 232 180" fill="#6b4226"/>
+  <!-- Face: ears -->
+  <ellipse cx="74" cy="170" rx="12" ry="16" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <ellipse cx="246" cy="170" rx="12" ry="16" fill="#e8d5c4" stroke="#c9a98a" stroke-width="1.5"/>
+  <!-- Eyebrows -->
+  <path d="M116 134 Q134 126 152 132" stroke="#6b4226" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M168 132 Q186 126 204 134" stroke="#6b4226" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Eyes -->
+  <ellipse cx="136" cy="148" rx="14" ry="10" fill="white" stroke="#c9a98a" stroke-width="1"/>
+  <ellipse cx="184" cy="148" rx="14" ry="10" fill="white" stroke="#c9a98a" stroke-width="1"/>
+  <circle cx="136" cy="148" r="6" fill="#5c4033"/>
+  <circle cx="184" cy="148" r="6" fill="#5c4033"/>
+  <circle cx="138" cy="146" r="2" fill="white"/>
+  <circle cx="186" cy="146" r="2" fill="white"/>
+  <!-- Eyelids / lashes -->
+  <path d="M122 142 Q136 136 150 142" stroke="#5c4033" stroke-width="1.5" fill="none"/>
+  <path d="M170 142 Q184 136 198 142" stroke="#5c4033" stroke-width="1.5" fill="none"/>
+  <!-- Nose -->
+  <path d="M155 158 L150 188 Q160 194 170 188 L165 158" stroke="#c9a98a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <ellipse cx="152" cy="190" rx="5" ry="4" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8"/>
+  <ellipse cx="168" cy="190" rx="5" ry="4" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.8"/>
+  <!-- Mouth -->
+  <path d="M140 216 Q160 228 180 216" stroke="#c9a98a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M140 216 Q160 210 180 216" stroke="#c9a98a" stroke-width="1" fill="none" stroke-linecap="round"/>
+  <ellipse cx="160" cy="218" rx="20" ry="8" fill="#dfc5b0" stroke="#c9a98a" stroke-width="0.5" opacity="0.4"/>
+  <!-- Cheeks blush -->
+  <ellipse cx="110" cy="180" rx="16" ry="10" fill="#f0b0a0" opacity="0.3"/>
+  <ellipse cx="210" cy="180" rx="16" ry="10" fill="#f0b0a0" opacity="0.3"/>
+  <!-- Chin area -->
+  <ellipse cx="160" cy="248" rx="24" ry="14" fill="#e8d5c4"/>
+</svg>
