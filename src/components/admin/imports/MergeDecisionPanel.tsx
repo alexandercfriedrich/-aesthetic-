@@ -25,7 +25,8 @@ type MergeDecisionPanelProps = {
 const EDITABLE_FIELDS: {
   key: keyof ImportCandidateRow;
   label: string;
-  type?: "text" | "textarea";
+  type?: "text" | "textarea" | "select";
+  options?: { value: string; label: string }[];
 }[] = [
   { key: "normalized_name", label: "Name" },
   { key: "city", label: "Stadt" },
@@ -33,13 +34,21 @@ const EDITABLE_FIELDS: {
   { key: "normalized_phone", label: "Telefon" },
   { key: "normalized_website_domain", label: "Website" },
   { key: "specialty_text", label: "Fachgebiet" },
+  {
+    key: "entity_kind",
+    label: "Typ",
+    type: "select",
+    options: [
+      { value: "doctor", label: "Arzt" },
+      { value: "clinic", label: "Klinik" },
+    ],
+  },
   { key: "reviewer_notes", label: "Notizen", type: "textarea" },
 ];
 
 const READONLY_FIELDS: { key: keyof ImportCandidateRow; label: string }[] = [
   { key: "source_url", label: "Quelle" },
   { key: "confidence_score", label: "Confidence" },
-  { key: "entity_kind", label: "Typ" },
   { key: "status", label: "Status" },
 ];
 
@@ -62,6 +71,14 @@ export function MergeDecisionPanel({
     return init;
   });
 
+  // Operations from raw_json — editable as comma-separated text
+  const rawOps = (candidate.raw_json as Record<string, unknown> | null)?.[
+    "operations"
+  ];
+  const [operationsText, setOperationsText] = useState<string>(() =>
+    Array.isArray(rawOps) ? (rawOps as string[]).join(", ") : "",
+  );
+
   const confidencePct =
     candidate.confidence_score != null
       ? Math.round(Number(candidate.confidence_score) * 100)
@@ -78,6 +95,11 @@ export function MergeDecisionPanel({
     setSaveSuccess(false);
     setIsSaving(true);
     try {
+      const operations = operationsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       await updateCandidateAction(candidate.id, {
         normalized_name: fields.normalized_name || undefined,
         city: fields.city || undefined,
@@ -85,7 +107,9 @@ export function MergeDecisionPanel({
         normalized_phone: fields.normalized_phone || undefined,
         normalized_website_domain: fields.normalized_website_domain || undefined,
         specialty_text: fields.specialty_text || undefined,
+        entity_kind: fields.entity_kind || undefined,
         reviewer_notes: fields.reviewer_notes || undefined,
+        operations,
       });
       setSaveSuccess(true);
       router.refresh();
@@ -121,7 +145,7 @@ export function MergeDecisionPanel({
     });
   }
 
-  const isNeedsReview = candidate.status === "needs_review";
+  const isEditable = ["new", "needs_review"].includes(candidate.status);
 
   return (
     <div className="space-y-5 rounded-2xl border bg-white p-5">
@@ -130,7 +154,7 @@ export function MergeDecisionPanel({
         <div>
           <h2 className="text-sm font-semibold">Kandidat bearbeiten</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {isNeedsReview
+            {isEditable
               ? "Felder prüfen und korrigieren, dann freigeben oder ablehnen."
               : "Kandidat wurde bereits bearbeitet."}
           </p>
@@ -186,9 +210,25 @@ export function MergeDecisionPanel({
                 onChange={(e) =>
                   setFields((prev) => ({ ...prev, [f.key]: e.target.value }))
                 }
-                disabled={!isNeedsReview || isSaving}
+                disabled={!isEditable || isSaving}
                 className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-ring"
               />
+            ) : f.type === "select" ? (
+              <select
+                id={`field-${f.key}`}
+                value={fields[f.key]}
+                onChange={(e) =>
+                  setFields((prev) => ({ ...prev, [f.key]: e.target.value }))
+                }
+                disabled={!isEditable || isSaving}
+                className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {f.options?.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             ) : (
               <input
                 id={`field-${f.key}`}
@@ -197,7 +237,7 @@ export function MergeDecisionPanel({
                 onChange={(e) =>
                   setFields((prev) => ({ ...prev, [f.key]: e.target.value }))
                 }
-                disabled={!isNeedsReview || isSaving}
+                disabled={!isEditable || isSaving}
                 className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-ring"
               />
             )}
@@ -220,25 +260,37 @@ export function MergeDecisionPanel({
         </dl>
       </div>
 
-      {/* Raw JSON (operations) */}
+      {/* Operations / Eingriffe — editable when status allows */}
       {(() => {
         const ops = (candidate.raw_json as Record<string, unknown> | null)?.["operations"];
-        if (!Array.isArray(ops) || ops.length === 0) return null;
+        const hasOps = Array.isArray(ops) && ops.length > 0;
+        if (!hasOps && !isEditable) return null;
         return (
           <div className="rounded-xl border bg-slate-50 px-4 py-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Eingriffe ({ops.length})
+              Eingriffe / Fachrichtungen
             </p>
-            <div className="flex flex-wrap gap-1">
-              {(ops as string[]).map((op) => (
-                <span
-                  key={op}
-                  className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700"
-                >
-                  {op}
-                </span>
-              ))}
-            </div>
+            {isEditable ? (
+              <textarea
+                rows={3}
+                value={operationsText}
+                onChange={(e) => setOperationsText(e.target.value)}
+                disabled={isSaving}
+                placeholder="Kommagetrennt, z.B. Facelift, Brustvergrößerung, Nasenkorrektur"
+                className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            ) : hasOps ? (
+              <div className="flex flex-wrap gap-1">
+                {(ops as string[]).map((op) => (
+                  <span
+                    key={op}
+                    className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700"
+                  >
+                    {op}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       })()}
@@ -255,7 +307,7 @@ export function MergeDecisionPanel({
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
-        {isNeedsReview && (
+        {isEditable && (
           <Button
             variant="outline"
             size="sm"
