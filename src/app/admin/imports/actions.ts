@@ -103,7 +103,7 @@ export async function updateCandidateAction(
   const { operations, ...columnFields } = fields;
 
   // If operations were provided, merge them into raw_json
-  if (operations) {
+  if (operations !== undefined) {
     const { data: existing } = await supabase
       .from("import_candidates")
       .select("raw_json")
